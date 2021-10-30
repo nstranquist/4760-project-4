@@ -11,11 +11,20 @@
 #include <signal.h>
 #include <sys/time.h>
 #include <sys/sem.h>
+#include <sys/shm.h>
 #include <sys/stat.h>
 #include <sys/msg.h> // use the message queues
 #include <getopt.h>
 
 #include "config.h"
+#include "user.h"
+
+#define maxTimeBetweenNewProcsNS 20
+#define maxTimeBetweenNewProcsSecs 20
+#define DEFAULT_LOGFILE_NAME "oss.log"
+
+// a constant representing the percentage of time a process launched an I/O-bound process or CPU-bound process. It should be weighted to generate more CPU-bound processes
+#define CPU_BOUND_PROCESS_PERCENTAGE 0.75
 
 static void myhandler(int signum) {
   if(signum == SIGINT) {
@@ -34,6 +43,8 @@ static void myhandler(int signum) {
   // do more cleanup
 
 }
+
+// Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
 int main(int argc, char *argv[]) {
   printf("Hello world!\n");
@@ -83,6 +94,18 @@ int main(int argc, char *argv[]) {
     sleepTime = SLEEP_TIME;
   }
 
+  // assign logfile. will overwrite previous files so that it's new each time the proram is run
+  if(logfileName == NULL) {
+    // use default
+    logfileName = DEFAULT_LOGFILE_NAME;
+  }
+
+  // Test that logfile can be used
+  FILE *logfile = fopen(logfileName, "w");
+  if(logfile == NULL) {
+    perror("oss: Error: Could not open log file for writing.\n");
+    return 1;
+  }
 
   // Setup intterupt handler
   signal(SIGINT, myhandler);
@@ -90,15 +113,61 @@ int main(int argc, char *argv[]) {
   // Start program timer
   alarm(sleepTime);
 
+  // I) Running System Clock...
+  // II) Create User Processes at Random Intervals (every 1 sec of clock on average)
+
+
+
+  // 1. Setup the System Clock
+  // 2. Get a time for the next (first) process to spawn
+  // 3. Add time to clock until process spawns, which happens when the time for process is reached (or exceeded)
+  // 4. Start the User Process with "execl"
+  // 5. Get Time from Child process when it finishes (child randomly generates it)
+  //    - do this through shared memory or message queue
+  //    - add that time back to the system clock (sec/ms)
+  // 6. 
+
+  /**
+   * Ready To Start Program Logic. Remember:
+   * - system clock (sec, ms) should only be advanced by oss
+  **/
+
+
+
+  // Define and Attatch Shared Memory
+    // allocate shmem for simulated system clock - 2 unsigned integers:
+    //  - one stores seconds
+    //  - one stores milliseconds
+
+    // allote space for the process control block
+
+  // Begin Process Forking: Main Logic Loop
+  //  get a time in the future for when the first process will launch (check if process is active yet)
+
+  //  if no processes are in "ready state" to run, the system should incrememnt the clock until it is time to launch a new process
+
+  //  setup the new process: (will use random functions more than not)
+  //    IF: Process Table is full
+  //      skip the generation, determine another time to try and generate a new process
+  //      log to log file that process table is full ("OSS: Process table is full at time t")
+
+  //    define/create the new process
+  //      generates by allocating and initializing the process control block for the process
+  //      forks the process
+  
+  //    generate a new time where it will launch a process, and schedule that process by sending a message to the Message Queue (check if I/O or CPU)
+
+  //    wait for a message back from the process that it has finished its task (transfer control to the child process code)
+
+  //  advance the system clock by 1.xx in each iteration of the loop
+  //    xx is the number of nanoseconds. xx is a random number from [0, 1000] to simulate overhead for activity
+
 
   return 0;
 }
 
 
 // message queue
-
-
-
 
 
 // handlers and interrupts
@@ -124,3 +193,14 @@ static int timerHandler(int s) {
   write(STDERR_FILENO, "The time limit was reached\n", 1);
   errno = errsave;
 }
+
+
+// Helper Function ides
+
+// int getRandom(int upper_bound);
+
+// int checkIfAnyRead();
+
+// int checkIfProcessFull();
+
+// void addTimeToClock(int sec, int ms);
