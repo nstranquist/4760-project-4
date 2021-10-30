@@ -14,7 +14,7 @@
 int main(int argc, char *argv[]) {
   // no args, proceed to process
 
-
+  // re-attach memory of the process block
 
 
 

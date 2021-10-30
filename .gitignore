@@ -1,5 +1,7 @@
 *.o
 oss
 user
+process_table
+utils
 examples/
 .vscode/

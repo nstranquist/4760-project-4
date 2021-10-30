@@ -17,7 +17,9 @@
 #include <getopt.h>
 
 #include "config.h"
-#include "user.h"
+// #include "user.h"
+#include "process_table.h"
+#include "utils.h"
 
 #define maxTimeBetweenNewProcsNS 20
 #define maxTimeBetweenNewProcsSecs 20
@@ -40,11 +42,15 @@ static void myhandler(int signum) {
     return; // ignore the interrupt, do not exit
   }
 
-  // do more cleanup
+  // do more cleanup of sharedmem
 
 }
 
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
+
+// Process Table declared
+extern struct ProcessTable *process_table;
+int shmid;
 
 int main(int argc, char *argv[]) {
   printf("Hello world!\n");
@@ -113,8 +119,27 @@ int main(int argc, char *argv[]) {
   // Start program timer
   alarm(sleepTime);
 
+  // Instantiate ProcessTable with shared memory
+  int shmid = shmget(IPC_PRIVATE, sizeof(struct ProcessTable), IPC_CREAT | 0666); // (struct ProcessTable)
+  if (shmid == -1) {
+    perror("oss: Error: Failed to create shared memory segment for process table\n");
+    return -1;
+  }
+
+  process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
+  if (process_table == (void *) -1) {
+    perror("oss: Error: Failed to attach to shared memory\n");
+    if (shmctl(shmid, IPC_RMID, NULL) == -1)
+      perror("oss: Error: Failed to remove memory segment\n");
+    return -1;
+  }
+
+  
+
   // I) Running System Clock...
-  // II) Create User Processes at Random Intervals (every 1 sec of clock on average)
+  // II) Create User Processes at Random Intervals
+  //    - random int between 0 and 2 seconds....
+  //      - sec [0,2), ms [0, INT_MAX)
 
 
 
@@ -151,7 +176,7 @@ int main(int argc, char *argv[]) {
   //      skip the generation, determine another time to try and generate a new process
   //      log to log file that process table is full ("OSS: Process table is full at time t")
 
-  //    define/create the new process
+  //    ELSE: define/create the new process
   //      generates by allocating and initializing the process control block for the process
   //      forks the process
   
@@ -197,10 +222,11 @@ static int timerHandler(int s) {
 
 // Helper Function ides
 
-// int getRandom(int upper_bound);
-
 // int checkIfAnyRead();
 
 // int checkIfProcessFull();
 
-// void addTimeToClock(int sec, int ms);
+
+void destoryMemory() {
+
+}
