@@ -5,11 +5,9 @@
 // Define the Process Control Block structure
 struct ProcessControlBlock {
 	int pid;
-	int priority;
-	int total_cpu_time;
-	int total_time_in_system;
-	int time_in_current_burst;
-	int time_remaining_in_current_burst;
+	int type; // 0 for CPU, 1 for IO
+
+  // timeslice? what else?
 };
 
 
@@ -18,7 +16,10 @@ struct ProcessTable {
   int sec;
   int ms;
 
-  int pid;
+  int total_processes;
+  int total_wait_time;
+  int total_time_in_system;
+  int total_cpu_time;
 
   // process control blocks
   int pcb_vector[MAX_PROCESSES];
@@ -30,4 +31,8 @@ struct ProcessTable {
 
 // functions for managing the process table
 void addTimeToClock(int sec, int ms);
-void incrementClock();
+void incrementClockRound();
+
+// Helper Function ides
+// int checkIfAnyRead();
+// int checkIfProcessFull();

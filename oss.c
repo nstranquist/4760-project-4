@@ -24,9 +24,15 @@
 #define maxTimeBetweenNewProcsNS 20
 #define maxTimeBetweenNewProcsSecs 20
 #define DEFAULT_LOGFILE_NAME "oss.log"
+#define BLOCK_READY_OVERHEAD 10 // ms to add as overhead for moving process from blocked to ready
 
 // a constant representing the percentage of time a process launched an I/O-bound process or CPU-bound process. It should be weighted to generate more CPU-bound processes
 #define CPU_BOUND_PROCESS_PERCENTAGE 0.75
+
+
+// Make a Blocked Queue of processes that are blocked
+// - oss checks this every time it makes a decision on scheduling to see if it should put the processes back in the ready queue
+// - when putting processes back in the reqdy queue, increment clock by BLOCK_READY_OVERHEAD amount
 
 static void myhandler(int signum) {
   if(signum == SIGINT) {
@@ -46,11 +52,18 @@ static void myhandler(int signum) {
 
 }
 
+void generateUserProcessInterval();
+int detachandremove(int shmid, void *shmaddr);
+void logmsg(FILE *fp, const char *msg);
+
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
 // Process Table declared
 extern struct ProcessTable *process_table;
 int shmid;
+
+int nextUserProcessSec;
+int nextUserProcessMs;
 
 int main(int argc, char *argv[]) {
   printf("Hello world!\n");
@@ -115,6 +128,9 @@ int main(int argc, char *argv[]) {
 
   // Setup intterupt handler
   signal(SIGINT, myhandler);
+
+  // seed the random
+  srand(time(NULL) + getpid());
 
   // Start program timer
   alarm(sleepTime);
@@ -188,6 +204,20 @@ int main(int argc, char *argv[]) {
   //    xx is the number of nanoseconds. xx is a random number from [0, 1000] to simulate overhead for activity
 
 
+
+  // End Program if:
+  // 1. >3 seconds have passed
+  // 2. >50 processes have been generated
+
+  // On Program End:
+  //    Generate a report with the info:
+  //    - avg wait time, avg time in system, avg cpu time, avg time a process waited in blocked queue for each type of process (cpu or io)
+  //    - total time cpu spent in idle (waiting)
+
+  // Gracefully Shutdown
+  // - remove shared memory
+  // - remove message queues
+
   return 0;
 }
 
@@ -219,14 +249,61 @@ static int timerHandler(int s) {
   errno = errsave;
 }
 
+// From textbook
+int detachandremove(int shmid, void *shmaddr) {
+  int error = 0;
 
-// Helper Function ides
+  if (shmdt(shmaddr) == -1) {
+    fprintf(stderr, "runsim: Error: Can't detach memory\n");
+    error = errno;
+  }
+  
+  if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error) {
+    fprintf(stderr, "runsim: Error: Can't remove shared memory\n");
+    error = errno;
+  }
 
-// int checkIfAnyRead();
+  if (!error)
+    return 0;
 
-// int checkIfProcessFull();
+  errno = error;
+
+  return -1;
+}
 
 
-void destoryMemory() {
 
+// Helper Function ides:
+
+void generateUserProcessInterval() {
+  int rand_sec = getRandom(2);
+  int rand_ms = getRandom(INT_MAX);
+
+  // set ints
+  nextUserProcessSec = rand_sec;
+  nextUserProcessMs = rand_ms;
+}
+
+void logmsg(FILE *fp, const char *msg) {
+  if(fp == NULL) {
+    perror("oss: Error: Could not use log file.\n");
+    return;
+  }
+
+  // Check if lines in the file >10,000
+  int linecount = 0;
+  char c;
+  for(c = getc(fp); c!=EOF; c=getc(fp)) {
+    if(c== '\n')
+      linecount += 1;
+  }
+
+  printf("file line count: %d\n", linecount);
+
+  if(linecount > LOGFILE_MAX_LINES) {
+    perror("runsim: Error: logfile has exceeded max lines\n");
+    return;
+  }
+
+  fprintf(fp, "%s\n", msg);
 }
