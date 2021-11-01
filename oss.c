@@ -55,7 +55,7 @@ int nextUserProcessMs;
 char *logfileName = NULL;
 
 static void myhandler(int signum) {
-    // is ctrl-c interrupt
+  // is ctrl-c interrupt
   if(signum == SIGINT)
     perror("\noss: Ctrl-C Interrupt Detected. Shutting down gracefully...\n");
   // is timer interrupt
@@ -70,10 +70,18 @@ static void myhandler(int signum) {
   if(detachandremove(shmid, process_table) == -1) {
     perror("oss: Error: Failure to detach and remove memory\n");
 
-    kill(getpid(), SIGKILL); // SIGKILL, SIGTERM, SIGINT
+    if(remmsgqueue() == -1)
+      perror("oss: Error: Failed to remove message queue\n");
 
+    kill(getpid(), SIGKILL); // SIGKILL, SIGTERM, SIGINT
     exit(1);
   }
+  if(remmsgqueue() == -1) {
+    perror("oss: Error: Failed to remove message queue\n");
+    kill(getpid(), SIGKILL);
+    exit(1);
+  }
+  
   pid_t group_id = getpgrp();
   if(group_id < 0)
     perror("oss: Info: group id not found\n");
@@ -84,6 +92,29 @@ static void myhandler(int signum) {
   kill(getpid(), SIGKILL);
 	exit(0);
   signal(SIGQUIT, SIG_IGN);
+}
+// handlers and interrupts
+static int setupitimer(int sleepTime) {
+  struct itimerval value;
+  value.it_interval.tv_sec = 0;
+  value.it_interval.tv_usec = 0;
+  value.it_value.tv_sec = sleepTime; // alarm
+  value.it_value.tv_usec = 0;
+  return (setitimer(ITIMER_PROF, &value, NULL));
+}
+
+static int setupinterrupt(void) {
+  struct sigaction act;
+  act.sa_handler = myhandler;
+  act.sa_flags = 0;
+  return (sigemptyset(&act.sa_mask) || sigaction(SIGPROF, &act, NULL) || sigaction(SIGALRM, &act, NULL));
+}
+
+static int timerHandler(int s) {
+  int errsave;
+  errsave = errno;
+  write(STDERR_FILENO, "The time limit was reached\n", 1);
+  errno = errsave;
 }
 
 int main(int argc, char *argv[]) {
@@ -153,11 +184,23 @@ int main(int argc, char *argv[]) {
   // seed the random function
   srand(time(NULL) + getpid());
 
+  // Set up timers and interrupt handler
+  if (setupinterrupt() == -1) {
+    perror("oss: Error: Could not run setup the interrupt handler.\n");
+    return -1;
+  }
+  if (setupitimer(seconds) == -1) {
+    perror("oss: Error: Could not setup the interval timer.\n");
+    return -1;
+  }
+
   // Setup intterupt handler
   signal(SIGINT, myhandler);
 
   // Start program timer
   alarm(seconds);
+
+  sleep(10);
 
 
   // Instantiate ProcessTable with shared memory (allocate and attach)
@@ -256,30 +299,6 @@ int main(int argc, char *argv[]) {
 
 // message queue
 
-
-// handlers and interrupts
-static int setupitimer(int sleepTime) {
-  struct itimerval value;
-  value.it_interval.tv_sec = 0;
-  value.it_interval.tv_usec = 0;
-  value.it_value.tv_sec = sleepTime; // alarm
-  value.it_value.tv_usec = 0;
-  return (setitimer(ITIMER_PROF, &value, NULL));
-}
-
-static int setupinterrupt(void) {
-  struct sigaction act;
-  act.sa_handler = myhandler;
-  act.sa_flags = 0;
-  return (sigemptyset(&act.sa_mask) || sigaction(SIGPROF, &act, NULL) || sigaction(SIGALRM, &act, NULL));
-}
-
-static int timerHandler(int s) {
-  int errsave;
-  errsave = errno;
-  write(STDERR_FILENO, "The time limit was reached\n", 1);
-  errno = errsave;
-}
 
 // From textbook
 int detachandremove(int shmid, void *shmaddr) {
