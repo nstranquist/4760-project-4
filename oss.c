@@ -39,37 +39,12 @@
 // - oss checks this every time it makes a decision on scheduling to see if it should put the processes back in the ready queue
 // - when putting processes back in the reqdy queue, increment clock by BLOCK_READY_OVERHEAD amount
 
-static void myhandler(int signum) {
-  if(signum == SIGINT) {
-    // is ctrl-c interrupt
-    perror("\nrunsim: Ctrl-C Interrupt Detected. Shutting down gracefully...\n");
-  }
-  else if(signum == SIGALRM) {
-    // is timer interrupt
-    perror("\nrunsim: Info: The time for this program has expired. Shutting down gracefully...\n");
-  }
-  else {
-    perror("\nrunsim: Warning: Only Ctrl-C and Timer signal interrupts are being handled.\n");
-    return; // ignore the interrupt, do not exit
-  }
-
-  // do more cleanup of sharedmem
-
-}
-
 void generateUserProcessInterval();
 int detachandremove(int shmid, void *shmaddr);
 void logmsg(FILE *fp, const char *msg);
 
-// msg queue functions
-// int remmsgqueue(void);
-// int msgwrite(void *buf, int len);
-// int msgprintf(char *fmt, int type, ...);
-// int initqueue(int key);
-
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
-// Process Table declared
 extern struct ProcessTable *process_table;
 int shmid;
 int queueid;
@@ -77,30 +52,63 @@ int queueid;
 int nextUserProcessSec;
 int nextUserProcessMs;
 
-int main(int argc, char *argv[]) {
-  printf("Hello world!\n");
+static void myhandler(int signum) {
+    // is ctrl-c interrupt
+  if(signum == SIGINT)
+    perror("\noss: Ctrl-C Interrupt Detected. Shutting down gracefully...\n");
+  // is timer interrupt
+  else if(signum == SIGALRM)
+    perror("\noss: Info: The time for this program has expired. Shutting down gracefully...\n");
+  else {
+    perror("\noss: Warning: Only Ctrl-C and Timer signal interrupts are being handled.\n");
+    return; // ignore the interrupt, do not exit
+  }
 
+  // do more cleanup of sharedmem
+  if(detachandremove(shmid, process_table) == -1) {
+    perror("oss: Error: Failure to detach and remove memory\n");
+
+    kill(getpid(), SIGKILL); // SIGKILL, SIGTERM, SIGINT
+
+    exit(1);
+  }
+  pid_t group_id = getpgrp();
+  if(group_id < 0)
+    perror("oss: Info: group id not found\n");
+  else
+    killpg(group_id, signum);
+
+
+  kill(getpid(), SIGKILL);
+	exit(0);
+  signal(SIGQUIT, SIG_IGN);
+}
+
+int main(int argc, char *argv[]) {
   // Parse CLI args:
   // -h for help
   // -s t for max seconds before termination
   // -l f specify a particular name for the log file
   int option;
   int seconds = -1;
-  int sleepTime;
   char *logfileName = NULL;
   int val;
-  while((option = getopt(argc, argv, "hsl:")) != -1) {
+  while((option = getopt(argc, argv, "hs:l:")) != -1) {
     switch(option) {
       case 'h':
         printf("is help\n");
         break;
       case 's':
-        // if(!atoi(optarg)) {
-        //   perror("cant convert optarg");
-        // }
-        // val = atoi(optarg);
-        // printf("%d", val);
-        printf("is secs: %s\n", optarg);
+        if(!atoi(optarg)) {
+          perror("oss: Error: Cant convert seconds to number");
+          return 1;
+        }
+        seconds = atoi(optarg);
+        if(seconds < 0) {
+          perror("oss: Error: Seconds cannot be less than 0\n");
+          return 1;
+        }
+        printf("is secs: %d\n", seconds);
         break;
       case 'l':
         printf("is logfile name: %s\n", optarg);
@@ -112,17 +120,18 @@ int main(int argc, char *argv[]) {
     }
   }
 
+
   // get the non option arguments
-  for(int i = optind; i < argc; i++) {
-    printf("Non-option argument: %s\n", argv[i]);
-  }
+  // for(int i = optind; i < argc; i++) {
+  //   printf("Non-option argument: %s\n", argv[i]);
+  // }
 
   if(seconds != -1) {
     printf("seconds exists: %d\n", seconds);
   }
   else {
     printf("seconds is undefined. setting to default\n");
-    sleepTime = SLEEP_TIME;
+    seconds = MAX_TIME;
   }
 
   // assign logfile. will overwrite previous files so that it's new each time the proram is run
@@ -138,16 +147,17 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  // seed the random function
+  srand(time(NULL) + getpid());
+
   // Setup intterupt handler
   signal(SIGINT, myhandler);
 
-  // seed the random
-  srand(time(NULL) + getpid());
-
   // Start program timer
-  alarm(sleepTime);
+  alarm(seconds);
 
-  // Instantiate ProcessTable with shared memory
+
+  // Instantiate ProcessTable with shared memory (allocate and attach)
   int shmid = shmget(IPC_PRIVATE, sizeof(struct ProcessTable), IPC_CREAT | 0666); // (struct ProcessTable)
   if (shmid == -1) {
     perror("oss: Error: Failed to create shared memory segment for process table\n");
@@ -228,7 +238,14 @@ int main(int argc, char *argv[]) {
 
   // Gracefully Shutdown
   // - remove shared memory
+  if(detachandremove(shmid, process_table) == -1) {
+    perror("oss: Error: Failure to detach and remove memory\n");
+  }
   // - remove message queues
+  if(remmsgqueue() == -1) {
+    perror("oss: Error: Failed to remove message queue")
+  }
+
 
   return 0;
 }
@@ -266,12 +283,12 @@ int detachandremove(int shmid, void *shmaddr) {
   int error = 0;
 
   if (shmdt(shmaddr) == -1) {
-    fprintf(stderr, "runsim: Error: Can't detach memory\n");
+    fprintf(stderr, "oss: Error: Can't detach memory\n");
     error = errno;
   }
   
   if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error) {
-    fprintf(stderr, "runsim: Error: Can't remove shared memory\n");
+    fprintf(stderr, "oss: Error: Can't remove shared memory\n");
     error = errno;
   }
 
@@ -313,7 +330,7 @@ void logmsg(FILE *fp, const char *msg) {
   printf("file line count: %d\n", linecount);
 
   if(linecount > LOGFILE_MAX_LINES) {
-    perror("runsim: Error: logfile has exceeded max lines\n");
+    perror("oss: Error: logfile has exceeded max lines\n");
     return;
   }
 
