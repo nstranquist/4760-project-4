@@ -10,16 +10,19 @@
 // #include <sys/shm.h> // shouldn't need to use shared memory
 #include <signal.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <sys/sem.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <sys/msg.h> // use the message queues
 #include <getopt.h>
+#include <stdarg.h>
 
 #include "config.h"
 // #include "user.h"
 #include "process_table.h"
 #include "utils.h"
+#include "queue.h"
 
 #define maxTimeBetweenNewProcsNS 20
 #define maxTimeBetweenNewProcsSecs 20
@@ -28,6 +31,8 @@
 
 // a constant representing the percentage of time a process launched an I/O-bound process or CPU-bound process. It should be weighted to generate more CPU-bound processes
 #define CPU_BOUND_PROCESS_PERCENTAGE 0.75
+
+#define PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
 
 
 // Make a Blocked Queue of processes that are blocked
@@ -56,11 +61,18 @@ void generateUserProcessInterval();
 int detachandremove(int shmid, void *shmaddr);
 void logmsg(FILE *fp, const char *msg);
 
+// msg queue functions
+// int remmsgqueue(void);
+// int msgwrite(void *buf, int len);
+// int msgprintf(char *fmt, int type, ...);
+// int initqueue(int key);
+
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
 // Process Table declared
 extern struct ProcessTable *process_table;
 int shmid;
+int queueid;
 
 int nextUserProcessSec;
 int nextUserProcessMs;
@@ -307,3 +319,7 @@ void logmsg(FILE *fp, const char *msg) {
 
   fprintf(fp, "%s\n", msg);
 }
+
+// Message Queue Functions
+
+

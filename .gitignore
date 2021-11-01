@@ -3,5 +3,6 @@ oss
 user
 process_table
 utils
+queue
 examples/
 .vscode/

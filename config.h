@@ -10,3 +10,5 @@
 #define SLEEP_TIME 100
 
 #define LOGFILE_MAX_LINES 10000
+
+#define MAX_MSG_SIZE 4096
