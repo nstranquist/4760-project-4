@@ -15,9 +15,14 @@ This project uses the main executable, `oss`, to simulate the process scheduling
 oss utilizes shared memory to store a `process_table` data structure, which contains information about the program and the `process_control_block`.
 oss also makes use of message queues. It initializes and uses a queue to send and receive messages with the child process.
 While running, `oss` decides a random time in the future to call its next process. This process sends a message back to `oss` when it is done.
-The program will end when the specified sleep time (seconds) is reached, or if the processes created surpasses the max processes allowed (50).
+The program will end when the specified sleep time (seconds) is reached, or if the processes created surpasses the max processes allowed (`50`).
 When the program is done running, all message queues and memory segments get cleaned up.
+A report is generated at the end of execution, with the information concerning the program's run results. It is in `oss.log` unless specified.
 
 Known Problems:
-If the program terminates with an interrupt, or anytime when a child process is still running, the memory cleanup will print a warning message that it failed. However, it did work the first time, but when there's a child it will fail the second time trying to destroy the memory.
+- If the program terminates with an interrupt, or anytime when a child process is still running, the memory cleanup will print a warning message that it failed. However, it did work the first time, but when there's a child it will fail the second time trying to destroy the memory.
 The solution must have something to do with manually exiting the child processes before finishing, but I did not figure that out.
+
+- Logfile is generated with params but is not getting all of the information yet from the program
+
+- Could not get scheduling algorithm to work with the bit vector. Will throw Segmentation Fault (core dumped)

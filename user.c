@@ -10,6 +10,7 @@
 #include <sys/msg.h>
 #include "user.h"
 #include "utils.h"
+#include "queue.h"
 
 #define TERMINATE_PROBABILITY 0.1
 
@@ -23,7 +24,7 @@ int main(int argc, char *argv[]) {
 
   srand(time(NULL) + getpid()); // re-seed the random
 
-  sleep(2);
+  sleep(1);
 
   return 0;
 

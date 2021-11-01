@@ -61,6 +61,8 @@ int next_ns = 0;
 
 char *logfileName = NULL;
 
+int bitvector[18] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
 static void myhandler(int signum) {
   // is ctrl-c interrupt
   if(signum == SIGINT)
@@ -72,6 +74,8 @@ static void myhandler(int signum) {
     perror("\noss: Warning: Only Ctrl-C and Timer signal interrupts are being handled.\n");
     return; // ignore the interrupt, do not exit
   }
+
+  generateReport();
 
   cleanup();
   
@@ -220,80 +224,81 @@ int main(int argc, char *argv[]) {
       process_table->total_processes++; // just for now
 
       incrementClockRound(1);
+      continue;
     }
-    else {
-      // ready for next process
-      printf("ready for next process\n");
 
-      // setup the next process
-      int is_table_full = 1;
-      if(is_table_full == 0) {
-        printf("process table is full\n");
-        //      skip the generation, determine another time to try and generate a new process
-        //      log to log file that process table is full ("OSS: Process table is full at time t")
-        char *msg = format_string("OSS: Process table is full at time: ", process_table->sec);
-        strcat(msg, ":");
-        msg = format_string(msg, process_table->ns);
-        logmsg(msg);
+    // ready for next process
+    printf("ready for next process\n");
 
-        continue;
-      }
-
-      printf("table not full. forking\n");
-
-
-      // Fork, then return
-      pid_t child_pid = fork();
-      if (child_pid == -1) {
-        perror("oss: Error: Failed to fork a child process\n");
-        cleanup();
-        return -1;
-      }
-
-      if (child_pid == 0) {
-        // attach memory again as child
-        process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
-
-        printf("in child\n");
-
-
-        // execl
-        execl("./user", "./user", (char*)NULL); // no args
-        perror("oss: Error: Child failed to execl\n");
-        exit(0);
-      }
-      else {
-        // in parent
-        // int status;
-        // pid_t wpid = waitpid(child_pid, &status, 0);
-        pid_t wpid = wait(NULL);
-        if (wpid == -1) {
-          perror("runsim: Error: Failed to wait for child\n");
-          
-        }
-        // child has finished. generate next time
-        printf("exited child\n");
-      }
-
-      // increment total processes that have ran
-      process_table->total_processes++;
-      
-      incrementClockRound(0);
-
-      //  setup the new process: (will use random functions more than not)
-      //    IF: Process Table is full
+    // setup the next process
+    // if(isTableFull() == 1)
+    if(bitvector[17] != 0) {
+      printf("process table is full\n");
       //      skip the generation, determine another time to try and generate a new process
       //      log to log file that process table is full ("OSS: Process table is full at time t")
+      char *msg = format_string("OSS: Process table is full at time: ", process_table->sec);
+      strcat(msg, ":");
+      msg = format_string(msg, process_table->ns);
+      logmsg(msg);
 
-      //    ELSE: define/create the new process
-      //      generates by allocating and initializing the process control block for the process
-      //      forks the process
-      
-      //    generate a new time where it will launch a process, and schedule that process by sending a message to the Message Queue (check if I/O or CPU)
+      incrementClockRound(1);
 
-      //    wait for a message back from the process that it has finished its task (transfer control to the child process code)
+      continue;
     }
 
+    printf("table not full. forking\n");
+
+
+    // Fork, then return
+    pid_t child_pid = fork();
+    if (child_pid == -1) {
+      perror("oss: Error: Failed to fork a child process\n");
+      cleanup();
+      return -1;
+    }
+
+    if (child_pid == 0) {
+      // attach memory again as child
+      process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
+
+      printf("in child\n");
+
+
+      // execl
+      execl("./user", "./user", (char*)NULL); // no args
+      perror("oss: Error: Child failed to execl\n");
+      exit(0);
+    }
+    else {
+      // in parent
+      // int status;
+      // pid_t wpid = waitpid(child_pid, &status, 0);
+      pid_t wpid = wait(NULL);
+      if (wpid == -1) {
+        perror("runsim: Error: Failed to wait for child\n");
+        
+      }
+      // child has finished. generate next time
+      printf("exited child\n");
+    }
+
+    // increment total processes that have ran
+    process_table->total_processes++;
+    
+    incrementClockRound(0);
+
+    //  setup the new process: (will use random functions more than not)
+    //    IF: Process Table is full
+    //      skip the generation, determine another time to try and generate a new process
+    //      log to log file that process table is full ("OSS: Process table is full at time t")
+
+    //    ELSE: define/create the new process
+    //      generates by allocating and initializing the process control block for the process
+    //      forks the process
+    
+    //    generate a new time where it will launch a process, and schedule that process by sending a message to the Message Queue (check if I/O or CPU)
+
+    //    wait for a message back from the process that it has finished its task (transfer control to the child process code)
   }
 
 

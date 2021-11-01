@@ -39,3 +39,9 @@ void addTimeToClock(int sec, int ns) {
   printf("\n");
   printf("sec: %d\tns: %d\n", process_table->sec, process_table->ns);
 }
+
+
+int isTableFull() {
+  // how to check?
+  
+}

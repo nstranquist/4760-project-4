@@ -24,12 +24,7 @@ struct ProcessTable {
   int total_idle_sec;
   int total_idle_ns;
 
-  // process control blocks
-  int pcb_vector[MAX_PROCESSES];
   struct ProcessControlBlock *pcb; // current block
-
-  // msg queues(?)
-
 };
 
 // functions for managing the process table
@@ -39,3 +34,4 @@ void incrementClockRound();
 // Helper Function ides
 // int checkIfAnyRead();
 // int checkIfProcessFull();
+int isTableFull();
