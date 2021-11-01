@@ -41,7 +41,7 @@
 
 void generateUserProcessInterval();
 int detachandremove(int shmid, void *shmaddr);
-void logmsg(FILE *fp, const char *msg);
+void logmsg(const char *msg);
 
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
@@ -51,6 +51,8 @@ int queueid;
 
 int nextUserProcessSec;
 int nextUserProcessMs;
+
+char *logfileName = NULL;
 
 static void myhandler(int signum) {
     // is ctrl-c interrupt
@@ -91,7 +93,6 @@ int main(int argc, char *argv[]) {
   // -l f specify a particular name for the log file
   int option;
   int seconds = -1;
-  char *logfileName = NULL;
   int val;
   while((option = getopt(argc, argv, "hs:l:")) != -1) {
     switch(option) {
@@ -141,11 +142,13 @@ int main(int argc, char *argv[]) {
   }
 
   // Test that logfile can be used
-  FILE *logfile = fopen(logfileName, "w");
-  if(logfile == NULL) {
+  FILE *fp = fopen(logfileName, "w");
+  if(fp == NULL) {
     perror("oss: Error: Could not open log file for writing.\n");
     return 1;
   }
+  fprintf(fp, "Log Info for OSS Program:\n"); // clear the logfile to start
+  fclose(fp);
 
   // seed the random function
   srand(time(NULL) + getpid());
@@ -241,10 +244,10 @@ int main(int argc, char *argv[]) {
   if(detachandremove(shmid, process_table) == -1) {
     perror("oss: Error: Failure to detach and remove memory\n");
   }
-  // - remove message queues
-  if(remmsgqueue() == -1) {
-    perror("oss: Error: Failed to remove message queue");
-  }
+  // - remove message queue(s)
+  // if(remmsgqueue() == -1) {
+  //   perror("oss: Error: Failed to remove message queue");
+  // }
 
 
   return 0;
@@ -313,7 +316,8 @@ void generateUserProcessInterval() {
   nextUserProcessMs = rand_ms;
 }
 
-void logmsg(FILE *fp, const char *msg) {
+void logmsg(const char *msg) {
+  FILE *fp = fopen(logfileName, "a");
   if(fp == NULL) {
     perror("oss: Error: Could not use log file.\n");
     return;
