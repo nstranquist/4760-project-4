@@ -9,29 +9,22 @@
 
 #include "queue.h"
 
-#define MAX_MSG_SIZE 4096
 #define PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
 
-typedef struct {
-  long mtype;
-  char mtext[MAX_MSG_SIZE];
-} mymsg_t;
-
-static int queueid;
 
 int initqueue(int key) {
-  queueid = msgget(key, PERMS | IPC_CREAT);
+  int queueid = msgget(key, PERMS | IPC_CREAT);
 
   if (queueid == -1) {
     perror("os: Error: could not initialize queue\n");
     return -1;
   }
 
-  return 0;
+  return queueid;
 }
 
 // from textbook
-int msgprintf(char *fmt, int msg_type, ...) {               /* output a formatted message */
+int msgprintf(char *fmt, int msg_type, int queueid, ...) {               /* output a formatted message */
   va_list ap;
   char ch;
   int error = 0;
@@ -67,7 +60,7 @@ int msgprintf(char *fmt, int msg_type, ...) {               /* output a formatte
   return 0;
 }
 
-int msgwrite(void *buf, int len, int msg_type) {     /* output buffer of specified length */
+int msgwrite(void *buf, int len, int msg_type, int queueid) {     /* output buffer of specified length */
   int error = 0;
   mymsg_t *mymsg;
 
@@ -93,6 +86,6 @@ int msgwrite(void *buf, int len, int msg_type) {     /* output buffer of specifi
   return 0;
 }
 
-int remmsgqueue(void) {
+int remmsgqueue(int queueid) {
   return msgctl(queueid, IPC_RMID, NULL);
 }

@@ -1,5 +1,5 @@
 // Simulates the User Process
-
+#define _GNU_SOURCE  // for asprintf
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -8,9 +8,11 @@
 #include <sys/types.h>
 #include <time.h>
 #include <sys/msg.h>
+#include <string.h>
 #include "user.h"
 #include "utils.h"
 #include "queue.h"
+#include "process_table.h"
 
 #define TERMINATE_PROBABILITY 0.1
 
@@ -18,11 +20,47 @@
 
 #define IO_BLOCK_PROBABILITY 0.75
 
+#define MAXSIZE 4096
+
+mymsg_t *mymsg;
+struct ProcessTable *process_table;
+int size;
+int queueid;
+
+char* format_string(char*msg, int data);
+
 int main(int argc, char *argv[]) {
   // no args, proceed to process
   printf("In user process!\n");
 
   srand(time(NULL) + getpid()); // re-seed the random
+
+  // attach shared memory
+  int shmid = IPC_PRIVATE; // temp
+  process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
+  if (process_table == (void *) -1) {
+    perror("oss: Error: Failed to attach to shared memory\n");
+    if (shmctl(shmid, IPC_RMID, NULL) == -1)
+      perror("oss: Error: Failed to remove memory segment\n");
+    return -1;
+  }
+
+  // Get message 
+  if((size = msgrcv(process_table->queueid, &mymsg, MAXSIZE, 0, 0)) == -1) {
+    perror("oss: Error: could not receive message\n");
+    return 0;
+  }
+
+  printf("msg size: %d\n", size);
+
+  printf("msg text: %s\n", mymsg->mtext);
+
+  printf("msg type: %ld\n", mymsg->mtype);
+
+  // get time slice from message
+  int timeslice = mymsg->mtext; // get timeslice from message text
+
+  // parse msg (util str_slice)
 
   sleep(1);
 
@@ -32,7 +70,8 @@ int main(int argc, char *argv[]) {
   // re-attach memory for message queue and process control block?
 
   // Get Timeslice from message queue
-
+  int timeslice_sec = 1;
+  int timeslice_ns = 500;
 
   
   // use TERMINATE_PROBABILITY to determine if program will terminate
@@ -41,37 +80,70 @@ int main(int argc, char *argv[]) {
     printf("Will terminate\n");
 
     // use random amount of its timeslice before terminating (no sleep delay)
+    int time_used_sec = getRandom(timeslice_sec+1);
+    int time_used_ns = getRandom(timeslice_ns+1);
+
+    printf("using %d sec, %d ns time of timeslice\n", time_used_sec, time_used_ns);
 
     // tell oss (send msg) it has terminated and how much of timeslice was used
+    // 1. update sharedmem values
+    // 2. send message back to parent
+    char buf[MAXSIZE] = "OSS: Terminated with Time used ";
 
+    format_string(buf, time_used_sec);
+    strcat(buf, ":");
+    format_string(buf, time_used_ns);
+
+    msgwrite(format_string, 52, mymsg->mtype, process_table->queueid);
 
     return 0;
   }
 
   printf("Won't terminate\n");
 
-  // Get type of program (CPU or I/O) from PCB in sharedmem
-  int program_type = 0; // for CPU
-
-  printf("Program type: %d\n", program_type);
+  printf("Program type: %ld\n", mymsg->mtype);
 
   // Get random number to determine if will use entire timeslice or get blocked by event
   double probability_temp = (double)rand() / RAND_MAX;
-  if(program_type == 0 && probability_temp <= CPU_BLOCK_PROBABILITY || program_type == 1 && probability_temp <= IO_BLOCK_PROBABILITY) {
+  if(mymsg->mtype == 1 && probability_temp <= CPU_BLOCK_PROBABILITY || mymsg->mtype == 2 && probability_temp <= IO_BLOCK_PROBABILITY) {
     printf("Is Blocked. Generating r,s then putting in blocked queue with a message\n");
 
     // get r [0,5] and s[0,1000] for the sec / ns
+    int r = getRandom(6);
+    int s = getRandom(1001);
 
+    // send message to blocked queue with a message
+    char *buf = "DISPATCH-PROCESS-BLOCKED-";
+    buf = format_string(buf, r);
+    strcat(buf, "-");
+    buf = format_string(buf, s);
 
-    // send message to queue
-
+    msgwrite(buf, 35, mymsg->mtype, process_table->blocked_queueid);
+  }
+  else {
+    printf("Is not blocked. Will tell oss and give timeslice\n");
+    
+    char *buf = "DISPATCH-PROCESS-FINISHED-";
+    buf = format_string(buf, timeslice_sec);
+    strcat(buf, "-");
+    buf = format_string(buf, timeslice_ns);
+    msgwrite(buf, 40, mymsg->mtype, process_table->queueid);
   }
   
   return 0;
 }
 
 
-// Get mesage from queue (from parent)
-
-
-// Send message to queue (to parent)
+char* format_string(char*msg, int data) {
+  char *temp;
+  char *buf;
+  if (asprintf(&temp, "%d", data) == -1) {
+    perror("oss: Warning: string format failed\n");
+    return "";
+  } else {
+    strcat(strcpy(buf, msg), temp);
+    printf("%s\n", buf);
+    free(temp);
+    return buf;
+  }
+}

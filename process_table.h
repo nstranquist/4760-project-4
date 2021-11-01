@@ -16,6 +16,9 @@ struct ProcessTable {
   int sec;
   int ns;
 
+  int queueid;
+  int blocked_queueid;
+
   int total_processes;
   int total_wait_time;
   int total_process_wait_time;

@@ -12,7 +12,7 @@ struct ProcessTable *process_table;
 // function implementations to work with process table
 void incrementClockRound(int isIdle) {
   // get random ns [0,1000]
-  int ns = getRandom(1000);
+  int ns = getRandom(1001);
 
   // create new time with 1 + ns
   addTimeToClock(1, ns);

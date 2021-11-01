@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <sys/msg.h> // use the message queues
 #include <getopt.h>
+#include <assert.h>
 #include <stdarg.h>
 
 #include "config.h"
@@ -34,6 +35,8 @@
 
 // a constant representing the percentage of time a process launched an I/O-bound process or CPU-bound process. It should be weighted to generate more CPU-bound processes
 #define CPU_BOUND_PROCESS_PERCENTAGE 0.75
+#define MAXLINE 1024
+#define MAX_MSG_SIZE 4096
 
 #define PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
 
@@ -49,12 +52,17 @@ int waitTimeIsUp();
 void generateReport();
 void cleanup();
 char* format_string(char*msg, int data);
+int getNextIndex();
+char** str_split(char* a_str, const char a_delim);
+// char** parseUserMessage(char *msg);
 
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
 extern struct ProcessTable *process_table;
+mymsg_t *mymsg;
 int shmid;
 int queueid;
+int blocked_queueid;
 
 int next_sec = 0;
 int next_ns = 0;
@@ -122,6 +130,18 @@ int main(int argc, char *argv[]) {
   int option;
   int seconds = -1;
   int val;
+  int result;
+  // msg values
+  char **msg_tokens; // array of parsed message values
+  const char delim = '-'; // char used to split message text for data
+  char test_msg_text[] = "DISPATCH-PROCESS-BLOCKED-20-500"; // test message to use until messages work
+  // message data info:
+  int msg_action; // token[0] - action: dispatch/receive, "0" / "1"
+  int msg_pid; // token[1] - process / pid
+  int msg_is_blocked; // token[2] - blocked or empty / != "BLOCKED", "0" / "1"
+  int msg_sec; // token[3] - timeslice in seconds
+  int msg_ns; // token[4] - timeslice in nanoseconds
+
   while((option = getopt(argc, argv, "hs:l:")) != -1) {
     switch(option) {
       case 'h':
@@ -206,33 +226,52 @@ int main(int argc, char *argv[]) {
   }
 
   // Initialize Message Queue
-  if(initqueue(IPC_PRIVATE) == -1) {
+  queueid = initqueue(IPC_PRIVATE);
+  if(queueid == -1) {
     perror("oss: Error: Failed to initialize message queue\n");
     cleanup();
     return -1;
   }
+  process_table->queueid = queueid;
+
+  blocked_queueid = initqueue(IPC_PRIVATE);
+  if(blocked_queueid == -1) {
+    perror("oss: Error: Failed to initialize message queue\n");
+    cleanup();
+    return -1;
+  }
+  process_table->blocked_queueid = blocked_queueid;
 
   // Start Process Loop
   while(process_table->total_processes < MAX_PROCESSES) {
     printf("\n");
     printf("process #%d\n", process_table->total_processes);
 
+    int next_sec_diff = getRandom(maxTimeBetweenNewProcsSecs+1);
+    int next_ns_diff = getRandom(maxTimeBetweenNewProcsNS+1);
+
+    next_sec = process_table->sec + next_sec_diff;
+    next_ns = process_table->ns + next_ns_diff;
+
+    printf("next sec: %d, next ns: %d\n", next_sec, next_ns);
+
     // Generate Next Time for child - rand: sec [0,2), ns[0, INT_MAX)
+    // if wait time is not up
     if(waitTimeIsUp() == 0) {
       // cpu in idle state, waiting for next process
       printf("oss in idle state\n");
       process_table->total_processes++; // just for now
 
-      incrementClockRound(1);
-      continue;
+      while(waitTimeIsUp() == 0)
+        incrementClockRound(1);
     }
 
     // ready for next process
     printf("ready for next process\n");
 
     // setup the next process
-    // if(isTableFull() == 1)
-    if(bitvector[17] != 0) {
+    int index = getNextIndex();
+    if(index == -1) {
       printf("process table is full\n");
       //      skip the generation, determine another time to try and generate a new process
       //      log to log file that process table is full ("OSS: Process table is full at time t")
@@ -246,7 +285,23 @@ int main(int argc, char *argv[]) {
       continue;
     }
 
-    printf("table not full. forking\n");
+    printf("table not full\n");
+
+    // allocate space, initialize process control block
+    bitvector[index] = 1;
+
+    double process_type_temp = (double)rand() / RAND_MAX;
+    int process_type;
+    if(process_type < CPU_BOUND_PROCESS_PERCENTAGE) {
+      printf("is cpu process\n");
+      // process_table->pcb->type = 1;
+      process_type = 1;
+    }
+    else {
+      printf("is io process\n");
+      // process_table->pcb->type = 2;
+      process_type = 2;
+    }
 
 
     // Fork, then return
@@ -271,34 +326,50 @@ int main(int argc, char *argv[]) {
     }
     else {
       // in parent
-      // int status;
+      char buf[MAXLINE] = "DISPATCH-TASK";
+      int size = 13;
+      result = msgwrite(buf, size, process_type, process_table->queueid);
+      if(result == -1) {
+        perror("oss: Error: Failed to write header to message queue\n");
+      }
+
+      result = msgrcv(process_table->queueid, &mymsg, MAX_MSG_SIZE, 0, 0);
+      if(result == -1) {
+        perror("oss: Error: Could not receive message from child\n");
+      }
+
+      // parse message result (using '-' as delimiter)
+      printf("message data: %s, message type: %ld\n", mymsg->mtext, mymsg->mtype);
+
+      msg_tokens = str_split(test_msg_text, delim);
+      if(msg_tokens) {
+        printf("Parsed msg tokens:\n");
+        for(int i = 0; *(msg_tokens + i); i++) {
+          printf("%s, ", *(msg_tokens + i));
+        }
+        printf("\n");
+
+        // convert int data from message
+        printf("ns: %s\n", *(msg_tokens + 4));
+
+        msg_sec = atoi(*(msg_tokens + 3));
+        msg_ns = atoi(*(msg_tokens +4));
+      }
+      else {
+        perror("oss: Error: could not parse message tokens. skipping");
+      }
+      
       // pid_t wpid = waitpid(child_pid, &status, 0);
       pid_t wpid = wait(NULL);
       if (wpid == -1) {
-        perror("runsim: Error: Failed to wait for child\n");
-        
+        perror("oss: Error: Failed to wait for child\n");
       }
-      // child has finished. generate next time
-      printf("exited child\n");
     }
 
     // increment total processes that have ran
     process_table->total_processes++;
     
     incrementClockRound(0);
-
-    //  setup the new process: (will use random functions more than not)
-    //    IF: Process Table is full
-    //      skip the generation, determine another time to try and generate a new process
-    //      log to log file that process table is full ("OSS: Process table is full at time t")
-
-    //    ELSE: define/create the new process
-    //      generates by allocating and initializing the process control block for the process
-    //      forks the process
-    
-    //    generate a new time where it will launch a process, and schedule that process by sending a message to the Message Queue (check if I/O or CPU)
-
-    //    wait for a message back from the process that it has finished its task (transfer control to the child process code)
   }
 
 
@@ -378,10 +449,14 @@ void cleanup() {
     perror("oss: Error: Failure to detach and remove memory\n");
   }
   else printf("success detatch\n");
-  if(remmsgqueue() == -1) {
+  if(remmsgqueue(process_table->queueid) == -1) {
     perror("oss: Error: Failed to remove message queue");
   }
   else printf("success remove msgqueue\n");
+  if(remmsgqueue(process_table->blocked_queueid) == -1) {
+    perror("oss: Error: Failed to remove blocked message queue");
+  }
+  else printf("success remove blocked msgqueue\n");
 }
 
 // From textbook
@@ -515,4 +590,95 @@ char* format_string(char*msg, int data) {
     free(temp);
     return buf;
   }
+}
+
+int getNextIndex() {
+  for(int i=0; i<18; i++) {
+    if(bitvector[i] == 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+void initProcessBlock(int index) {
+  bitvector[index] = 1; // activate
+  process_table->pcb->pid = 0;
+  process_table->pcb->type = 1;
+}
+
+// char** parseUserMessage(char *msg) {
+//   char *results[4];
+//   char *delim = "-";
+//   char *ch;
+//   int index = 1;
+
+//   ch = strtok(mymsg->mtext, delim);
+//   printf("got first char: %s\n", ch);
+//   results[0] = ch;
+
+//   while(ch != NULL) {
+//     printf("char: %s\n", ch);
+//     ch = strtok(NULL, delim);
+//     results[index] = (char *)ch;
+//     index++;
+//     if(index > 3)
+//       break;
+//   }
+
+//   printf("All parsed data from message:\n");
+//   for(int i = 0; i<4; i++) {
+//     printf(", %s", results[i]);
+//   }
+
+//   return results;
+// }
+
+// source: https://stackoverflow.com/questions/9210528/split-string-with-delimiters-in-c
+char** str_split(char* a_str, const char a_delim)
+{
+    char** result    = 0;
+    size_t count     = 0;
+    char* tmp        = a_str;
+    char* last_comma = 0;
+    char delim[2];
+    delim[0] = a_delim;
+    delim[1] = 0;
+
+    /* Count how many elements will be extracted. */
+    while (*tmp)
+    {
+        if (a_delim == *tmp)
+        {
+            count++;
+            last_comma = tmp;
+        }
+        tmp++;
+    }
+
+    /* Add space for trailing token. */
+    count += last_comma < (a_str + strlen(a_str) - 1);
+
+    /* Add space for terminating null string so caller
+       knows where the list of returned strings ends. */
+    count++;
+
+    result = malloc(sizeof(char*) * count);
+
+    if (result)
+    {
+        size_t idx  = 0;
+        char* token = strtok(a_str, delim);
+
+        while (token)
+        {
+            assert(idx < count);
+            *(result + idx++) = strdup(token);
+            token = strtok(0, delim);
+        }
+        assert(idx == count - 1);
+        *(result + idx) = 0;
+    }
+
+    return result;
 }
