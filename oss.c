@@ -21,6 +21,7 @@
 #include <getopt.h>
 #include <assert.h>
 #include <stdarg.h>
+#include <math.h>
 
 #include "config.h"
 // #include "user.h"
@@ -54,12 +55,13 @@ void cleanup();
 char* format_string(char*msg, int data);
 int getNextIndex();
 char** str_split(char* a_str, const char a_delim);
+void make_empty(char **arg_array, int rows, int cols);
 // char** parseUserMessage(char *msg);
 
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
 extern struct ProcessTable *process_table;
-mymsg_t *mymsg;
+mymsg_t mymsg;
 int shmid;
 int queueid;
 int blocked_queueid;
@@ -303,6 +305,22 @@ int main(int argc, char *argv[]) {
       process_type = 2;
     }
 
+    // send message to queue
+    char *buf_str;
+    asprintf(&buf_str, "DISPATCH-PROCESS-_-%d-%d", process_table->sec, process_table->ns);
+
+    // get size of buf_str
+    int buf_size = strlen(buf_str);
+
+    // send message to queue
+    if(msgwrite(buf_str, buf_size, process_type, process_table->queueid) == -1) {
+      perror("oss: Error: Failed to send message to queue\n");
+      cleanup();
+      return -1;
+    }
+    else {
+      printf("sent message to queue\n");
+    }
 
     // Fork, then return
     pid_t child_pid = fork();
@@ -316,35 +334,45 @@ int main(int argc, char *argv[]) {
       // attach memory again as child
       process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
 
-      printf("in child\n");
-
+      char *shmid_str;
+      asprintf(&shmid_str, "%i", shmid);
 
       // execl
-      execl("./user", "./user", (char*)NULL); // no args
-      perror("oss: Error: Child failed to execl\n");
+      execl("./user", "./user", shmid_str, (char *) NULL); // 1 arg: pass shmid
+      perror("oss: Error: Child failed to execl");
+      cleanup();
       exit(0);
     }
     else {
       // in parent
-      char buf[MAXLINE] = "DISPATCH-TASK";
-      int size = 13;
-      result = msgwrite(buf, size, process_type, process_table->queueid);
-      if(result == -1) {
-        perror("oss: Error: Failed to write header to message queue\n");
+      // declare string
+      char *msg;
+      asprintf(&msg, "OSS: Process %d created at time: %d:%d", child_pid, process_table->sec, process_table->ns);
+      logmsg(msg);
+
+      pid_t wpid = wait(NULL);
+      if (wpid == -1) {
+        perror("oss: Error: Failed to wait for child\n");
+        cleanup();
+        return 1;
       }
 
-      result = msgrcv(process_table->queueid, &mymsg, MAX_MSG_SIZE, 0, 0);
-      if(result == -1) {
+      fprintf(stderr, "out of msgwrite. queueid: %d\n", process_table->queueid);
+
+      int msg_size = msgrcv(process_table->queueid, &mymsg, MAX_MSG_SIZE, 0, 0);
+      if(msg_size == -1) {
         perror("oss: Error: Could not receive message from child\n");
+        cleanup();
+        return 1;
       }
 
       // parse message result (using '-' as delimiter)
-      printf("message data: %s, message type: %ld\n", mymsg->mtext, mymsg->mtype);
+      printf("message data: %s, message type: %ld\n", mymsg.mtext, mymsg.mtype);
 
-      msg_tokens = str_split(test_msg_text, delim);
+      msg_tokens = str_split(mymsg.mtext, delim);
       if(msg_tokens) {
         printf("Parsed msg tokens:\n");
-        for(int i = 0; *(msg_tokens + i); i++) {
+        for(int i = 0; i<5; i++) {
           printf("%s, ", *(msg_tokens + i));
         }
         printf("\n");
@@ -354,16 +382,19 @@ int main(int argc, char *argv[]) {
 
         msg_sec = atoi(*(msg_tokens + 3));
         msg_ns = atoi(*(msg_tokens +4));
+
+        // reset char **msg_tokens to empty
+
+        memset(msg_tokens, 0, sizeof(char *) * 5);
+        free(msg_tokens);
+        fprintf(stderr, "msg_tokens freed\n");
       }
       else {
         perror("oss: Error: could not parse message tokens. skipping");
       }
       
       // pid_t wpid = waitpid(child_pid, &status, 0);
-      pid_t wpid = wait(NULL);
-      if (wpid == -1) {
-        perror("oss: Error: Failed to wait for child\n");
-      }
+      
     }
 
     // increment total processes that have ran
@@ -607,33 +638,6 @@ void initProcessBlock(int index) {
   process_table->pcb->type = 1;
 }
 
-// char** parseUserMessage(char *msg) {
-//   char *results[4];
-//   char *delim = "-";
-//   char *ch;
-//   int index = 1;
-
-//   ch = strtok(mymsg->mtext, delim);
-//   printf("got first char: %s\n", ch);
-//   results[0] = ch;
-
-//   while(ch != NULL) {
-//     printf("char: %s\n", ch);
-//     ch = strtok(NULL, delim);
-//     results[index] = (char *)ch;
-//     index++;
-//     if(index > 3)
-//       break;
-//   }
-
-//   printf("All parsed data from message:\n");
-//   for(int i = 0; i<4; i++) {
-//     printf(", %s", results[i]);
-//   }
-
-//   return results;
-// }
-
 // source: https://stackoverflow.com/questions/9210528/split-string-with-delimiters-in-c
 char** str_split(char* a_str, const char a_delim)
 {
@@ -681,4 +685,15 @@ char** str_split(char* a_str, const char a_delim)
     }
 
     return result;
+}
+
+// source https://stackoverflow.com/questions/10289197/how-to-empty-a-2d-char-array-in-c
+void make_empty(char **arg_array, int rows, int cols) {
+  int i,j;
+  for(i = 0; i <rows; i++) {
+    for(j=0; j<cols;j++) {
+      arg_array[i][j] = '\0';
+    }
+  }
+  return;
 }

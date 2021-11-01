@@ -22,9 +22,10 @@
 
 #define MAXSIZE 4096
 
-mymsg_t *mymsg;
-struct ProcessTable *process_table;
+mymsg_t mymsg;
+extern struct ProcessTable *process_table;
 int size;
+int shmid;
 int queueid;
 
 char* format_string(char*msg, int data);
@@ -33,10 +34,19 @@ int main(int argc, char *argv[]) {
   // no args, proceed to process
   printf("In user process!\n");
 
+  if(argc != 2) {
+    fprintf(stderr, "oss: Error: invalid usage for user process. Too many or too few args\n");
+    return 1;
+  }
+
   srand(time(NULL) + getpid()); // re-seed the random
 
+  // get shmid from passed arguments
+  shmid = atoi(argv[1]);
+
+  printf("shmid: %d\n", shmid);
+
   // attach shared memory
-  int shmid = IPC_PRIVATE; // temp
   process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
   if (process_table == (void *) -1) {
     perror("oss: Error: Failed to attach to shared memory\n");
@@ -45,24 +55,34 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
+  fprintf(stderr, "finished attaching process table\n");
+
   // Get message 
   if((size = msgrcv(process_table->queueid, &mymsg, MAXSIZE, 0, 0)) == -1) {
     perror("oss: Error: could not receive message\n");
     return 0;
   }
+  else fprintf(stderr, "finished getting msg\n");
 
   printf("msg size: %d\n", size);
 
-  printf("msg text: %s\n", mymsg->mtext);
+  printf("msg text: %s\n", mymsg.mtext);
 
-  printf("msg type: %ld\n", mymsg->mtype);
+  printf("msg type: %ld\n", mymsg.mtype);
 
-  // get time slice from message
-  int timeslice = mymsg->mtext; // get timeslice from message text
+  // // get time slice from message
+  // int timeslice = mymsg.mtext; // get timeslice from message text
 
   // parse msg (util str_slice)
 
-  sleep(1);
+  // send message back to oss
+  if((size = msgwrite(mymsg.mtext, size + 1, mymsg.mtype, process_table->queueid)) == -1) {
+    perror("oss: Error: could not send message\n");
+    return 1;
+  }
+  else {
+    printf("sent message back to oss\n");
+  }
 
   return 0;
 
@@ -94,18 +114,18 @@ int main(int argc, char *argv[]) {
     strcat(buf, ":");
     format_string(buf, time_used_ns);
 
-    msgwrite(format_string, 52, mymsg->mtype, process_table->queueid);
+    msgwrite(format_string, 52, mymsg.mtype, process_table->queueid);
 
     return 0;
   }
 
   printf("Won't terminate\n");
 
-  printf("Program type: %ld\n", mymsg->mtype);
+  printf("Program type: %ld\n", mymsg.mtype);
 
   // Get random number to determine if will use entire timeslice or get blocked by event
   double probability_temp = (double)rand() / RAND_MAX;
-  if(mymsg->mtype == 1 && probability_temp <= CPU_BLOCK_PROBABILITY || mymsg->mtype == 2 && probability_temp <= IO_BLOCK_PROBABILITY) {
+  if(mymsg.mtype == 1 && probability_temp <= CPU_BLOCK_PROBABILITY || mymsg.mtype == 2 && probability_temp <= IO_BLOCK_PROBABILITY) {
     printf("Is Blocked. Generating r,s then putting in blocked queue with a message\n");
 
     // get r [0,5] and s[0,1000] for the sec / ns
@@ -118,7 +138,7 @@ int main(int argc, char *argv[]) {
     strcat(buf, "-");
     buf = format_string(buf, s);
 
-    msgwrite(buf, 35, mymsg->mtype, process_table->blocked_queueid);
+    msgwrite(buf, 35, mymsg.mtype, process_table->blocked_queueid);
   }
   else {
     printf("Is not blocked. Will tell oss and give timeslice\n");
@@ -127,7 +147,7 @@ int main(int argc, char *argv[]) {
     buf = format_string(buf, timeslice_sec);
     strcat(buf, "-");
     buf = format_string(buf, timeslice_ns);
-    msgwrite(buf, 40, mymsg->mtype, process_table->queueid);
+    msgwrite(buf, 40, mymsg.mtype, process_table->queueid);
   }
   
   return 0;

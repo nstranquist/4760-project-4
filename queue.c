@@ -61,11 +61,17 @@ int msgprintf(char *fmt, int msg_type, int queueid, ...) {               /* outp
 }
 
 int msgwrite(void *buf, int len, int msg_type, int queueid) {     /* output buffer of specified length */
+  printf("(msgwrite) size: %d\n", len);
   int error = 0;
   mymsg_t *mymsg;
 
-  if ((mymsg = (mymsg_t *)malloc(sizeof(mymsg_t) + len - 1)) == NULL)
+  if ((mymsg = (mymsg_t *)malloc(sizeof(mymsg_t) + len - 1)) == NULL) {
+    perror("oss: Error: Could not allocate space for message\n");
     return -1;
+  }
+  else {
+    printf("(msgwrite) malloc success\n");
+  }
 
   memcpy(mymsg->mtext, buf, len);
 

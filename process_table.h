@@ -10,7 +10,6 @@ struct ProcessControlBlock {
   // timeslice? what else?
 };
 
-
 // Process Table - Process Control Block for each of the user's processes and Information to manage child process scheduling
 struct ProcessTable {
   int sec;
