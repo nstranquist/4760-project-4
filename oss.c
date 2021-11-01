@@ -42,6 +42,7 @@
 void generateUserProcessInterval();
 int detachandremove(int shmid, void *shmaddr);
 void logmsg(const char *msg);
+int waitTimeIsUp();
 
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
@@ -49,8 +50,8 @@ extern struct ProcessTable *process_table;
 int shmid;
 int queueid;
 
-int nextUserProcessSec;
-int nextUserProcessMs;
+int next_sec = 0;
+int next_ms = 0;
 
 char *logfileName = NULL;
 
@@ -215,8 +216,27 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-
   // Start Process Loop
+  while(process_table->total_processes < 50) {
+    printf("\n");
+
+    // Generate Next Time for child - rand: sec [0,2), ms[0, INT_MAX)
+    if(waitTimeIsUp() == 0) {
+      // cpu in idle state, waiting for next process
+      printf("oss in idle state\n");
+
+    }
+    else {
+      // ready for next process
+      printf("ready for next process\n");
+
+      // increment total processes that have ran
+      process_table->total_processes++;
+    }
+
+    // increment clock
+    incrementClockRound();
+  }
 
 
   
@@ -325,15 +345,27 @@ int detachandremove(int shmid, void *shmaddr) {
 
 
 
-// Helper Function ides:
+// Helper Functions:
+int waitTimeIsUp() {
+  // compare next_sec and next_ms with what's in the process table
+  if(next_sec <= process_table->sec) {
+    printf("secs are caught up\n");
+    if(next_ms <= process_table->ms) {
+      printf("ms are caught up. wait time is up\n");
+      return 1;
+    }
+  }
+
+  return 0; // 0 means not
+}
 
 void generateUserProcessInterval() {
   int rand_sec = getRandom(2);
   int rand_ms = getRandom(INT_MAX);
 
   // set ints
-  nextUserProcessSec = rand_sec;
-  nextUserProcessMs = rand_ms;
+  next_sec = rand_sec;
+  next_ms = rand_ms;
 }
 
 void logmsg(const char *msg) {
