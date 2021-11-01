@@ -18,8 +18,11 @@ struct ProcessTable {
 
   int total_processes;
   int total_wait_time;
+  int total_process_wait_time;
   int total_time_in_system;
   int total_cpu_time;
+  int total_idle_sec;
+  int total_idle_ms;
 
   // process control blocks
   int pcb_vector[MAX_PROCESSES];

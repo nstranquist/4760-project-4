@@ -1,3 +1,4 @@
+#define _GNU_SOURCE  // for asprintf
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -43,6 +44,7 @@ void generateUserProcessInterval();
 int detachandremove(int shmid, void *shmaddr);
 void logmsg(const char *msg);
 int waitTimeIsUp();
+void generateReport();
 
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
@@ -225,6 +227,8 @@ int main(int argc, char *argv[]) {
       // cpu in idle state, waiting for next process
       printf("oss in idle state\n");
       process_table->total_processes++; // just for now
+
+      incrementClockRound(1);
     }
     else {
       // ready for next process
@@ -232,10 +236,10 @@ int main(int argc, char *argv[]) {
 
       // increment total processes that have ran
       process_table->total_processes++;
+      
+      incrementClockRound(0);
     }
 
-    // increment clock
-    incrementClockRound();
   }
 
 
@@ -302,6 +306,7 @@ int main(int argc, char *argv[]) {
   //    Generate a report with the info:
   //    - avg wait time, avg time in system, avg cpu time, avg time a process waited in blocked queue for each type of process (cpu or io)
   //    - total time cpu spent in idle (waiting)
+  generateReport();
 
   // Gracefully Shutdown
   // - remove shared memory
@@ -317,8 +322,6 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-
-// message queue
 
 
 // From textbook
@@ -366,8 +369,57 @@ void generateUserProcessInterval() {
   next_ms = rand_ms;
 }
 
+// log program results to file
+void generateReport() {
+  if(process_table->total_processes == 0) {
+    perror("oss: Warning: total processes was 0, skipping the report\n");
+    return;
+  }
+
+  int average_wait = process_table->total_wait_time / process_table->total_processes;
+  int average_time_in_system = process_table->total_time_in_system / process_table->total_processes;
+  int average_cpu_time = process_table->total_cpu_time / process_table->total_processes;
+  int average_process_wait = process_table->total_wait_time / process_table->total_processes;
+
+  int report[4] = {average_wait, average_time_in_system, average_cpu_time, average_process_wait};
+  char report_str[4][25] = {
+    "Average Wait: ",
+    "Average Time in System:",
+    "Average CPU Time: ",
+    "Average Process Wait: "
+  };
+
+  logmsg("\nFinal Report:");
+  
+  char *report_info;
+
+  for(int i=0; i<4; i++) {
+    char buf[100];
+    if (asprintf(&report_info, "%d", report[i]) == -1) {
+      perror("oss: Warning: asprintf failed\n");
+    } else {
+      strcat(strcpy(buf, report_str[i]), report_info);
+      printf("%s\n", buf);
+      logmsg(buf);
+      free(report_info);
+    }
+  }
+
+  // calculate total idle time
+  char *total_idle_time_str = "Total Idle Time: ";
+  if (asprintf(&report_info, "sec: %d\tms: %d", process_table->sec, process_table->ms) == -1) {
+    perror("oss: Warning: asprintf failed\n");
+  } else {
+    char buf[100];
+    strcat(strcpy(buf, total_idle_time_str), report_info);
+    printf("%s\n", buf);
+    logmsg(buf);
+    free(report_info);
+  }
+}
+
 void logmsg(const char *msg) {
-  FILE *fp = fopen(logfileName, "a");
+  FILE *fp = fopen(logfileName, "a+");
   if(fp == NULL) {
     perror("oss: Error: Could not use log file.\n");
     return;
@@ -376,21 +428,23 @@ void logmsg(const char *msg) {
   // Check if lines in the file >10,000
   int linecount = 0;
   char c;
-  for(c = getc(fp); c!=EOF; c=getc(fp)) {
-    if(c== '\n')
-      linecount += 1;
+  while(1) {
+    if(feof(fp))
+      break;
+    c = fgetc(fp);
+    if(c == '\n')
+      linecount++;
   }
 
-  printf("file line count: %d\n", linecount);
+  // printf("file line count: %d\n", linecount);
 
   if(linecount > LOGFILE_MAX_LINES) {
     perror("oss: Error: logfile has exceeded max lines\n");
+    fclose(fp);
     return;
   }
 
   fprintf(fp, "%s\n", msg);
+  fclose(fp);
 }
-
-// Message Queue Functions
-
 
