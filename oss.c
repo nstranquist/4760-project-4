@@ -243,7 +243,7 @@ int main(int argc, char *argv[]) {
   }
   // - remove message queues
   if(remmsgqueue() == -1) {
-    perror("oss: Error: Failed to remove message queue")
+    perror("oss: Error: Failed to remove message queue");
   }
 
 
