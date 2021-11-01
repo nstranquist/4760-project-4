@@ -6,8 +6,10 @@
 #include <limits.h>
 #include <string.h>
 #include <errno.h>
+#include <signal.h>
 #include <sys/ipc.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 // #include <sys/shm.h> // shouldn't need to use shared memory
 #include <signal.h>
 #include <sys/time.h>
@@ -45,6 +47,7 @@ int detachandremove(int shmid, void *shmaddr);
 void logmsg(const char *msg);
 int waitTimeIsUp();
 void generateReport();
+void cleanup();
 
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
@@ -69,21 +72,7 @@ static void myhandler(int signum) {
     return; // ignore the interrupt, do not exit
   }
 
-  // do more cleanup of sharedmem
-  if(detachandremove(shmid, process_table) == -1) {
-    perror("oss: Error: Failure to detach and remove memory\n");
-
-    if(remmsgqueue() == -1)
-      perror("oss: Error: Failed to remove message queue\n");
-
-    kill(getpid(), SIGKILL); // SIGKILL, SIGTERM, SIGINT
-    exit(1);
-  }
-  if(remmsgqueue() == -1) {
-    perror("oss: Error: Failed to remove message queue\n");
-    kill(getpid(), SIGKILL);
-    exit(1);
-  }
+  cleanup();
   
   pid_t group_id = getpgrp();
   if(group_id < 0)
@@ -212,8 +201,8 @@ int main(int argc, char *argv[]) {
   // Initialize Message Queue
   if(initqueue(IPC_PRIVATE) == -1) {
     perror("oss: Error: Failed to initialize message queue\n");
-    if(detachandremove(shmid, process_table) == -1)
-      perror("oss: Error: Failed to detach and remove memory\n");
+    
+    cleanup();
 
     return -1;
   }
@@ -234,22 +223,61 @@ int main(int argc, char *argv[]) {
       // ready for next process
       printf("ready for next process\n");
 
+      // setup the next process
+
+
+      // Fork, then return
+      pid_t child_pid = fork();
+      if (child_pid == -1) {
+        perror("oss: Error: Failed to fork a child process\n");
+        cleanup();
+        return -1;
+      }
+
+      if (child_pid == 0) {
+        // attach memory again as child
+        process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
+
+        
+
+        
+      }
+      else {
+        // in parent
+        int statis
+        pid_t wpid = waitpid(child_pid, &status);
+        if (wpid == -1) {
+          perror("runsim: Error: Failed to wait for child\n");
+          
+        }
+      }
+
       // increment total processes that have ran
       process_table->total_processes++;
       
       incrementClockRound(0);
+
+      //  setup the new process: (will use random functions more than not)
+      //    IF: Process Table is full
+      //      skip the generation, determine another time to try and generate a new process
+      //      log to log file that process table is full ("OSS: Process table is full at time t")
+
+      //    ELSE: define/create the new process
+      //      generates by allocating and initializing the process control block for the process
+      //      forks the process
+      
+      //    generate a new time where it will launch a process, and schedule that process by sending a message to the Message Queue (check if I/O or CPU)
+
+      //    wait for a message back from the process that it has finished its task (transfer control to the child process code)
     }
 
   }
 
 
-  
-
   // I) Running System Clock...
   // II) Create User Processes at Random Intervals
   //    - random int between 0 and 2 seconds....
   //      - sec [0,2), ms [0, INT_MAX)
-
 
 
   // 1. Setup the System Clock
@@ -265,7 +293,6 @@ int main(int argc, char *argv[]) {
    * Ready To Start Program Logic. Remember:
    * - system clock (sec, ms) should only be advanced by oss
   **/
-
 
 
   // Define and Attatch Shared Memory
@@ -310,19 +337,21 @@ int main(int argc, char *argv[]) {
 
   // Gracefully Shutdown
   // - remove shared memory
-  if(detachandremove(shmid, process_table) == -1) {
-    perror("oss: Error: Failure to detach and remove memory\n");
-  }
   // - remove message queue(s)
-  if(remmsgqueue() == -1) {
-    perror("oss: Error: Failed to remove message queue");
-  }
+  cleanup();
 
 
   return 0;
 }
 
-
+void cleanup() {
+  if(detachandremove(shmid, process_table) == -1) {
+    perror("oss: Error: Failure to detach and remove memory\n");
+  }
+  if(remmsgqueue() == -1) {
+    perror("oss: Error: Failed to remove message queue");
+  }
+}
 
 // From textbook
 int detachandremove(int shmid, void *shmaddr) {
