@@ -153,16 +153,7 @@ int main(int argc, char *argv[]) {
   }
 
 
-  // get the non option arguments
-  // for(int i = optind; i < argc; i++) {
-  //   printf("Non-option argument: %s\n", argv[i]);
-  // }
-
-  if(seconds != -1) {
-    printf("seconds exists: %d\n", seconds);
-  }
-  else {
-    printf("seconds is undefined. setting to default\n");
+  if(seconds == -1) {
     seconds = MAX_TIME;
   }
 
@@ -200,9 +191,6 @@ int main(int argc, char *argv[]) {
   // Start program timer
   alarm(seconds);
 
-  sleep(10);
-
-
   // Instantiate ProcessTable with shared memory (allocate and attach)
   int shmid = shmget(IPC_PRIVATE, sizeof(struct ProcessTable), IPC_CREAT | 0666); // (struct ProcessTable)
   if (shmid == -1) {
@@ -217,6 +205,19 @@ int main(int argc, char *argv[]) {
       perror("oss: Error: Failed to remove memory segment\n");
     return -1;
   }
+
+  // Initialize Message Queue
+  if(initqueue(IPC_PRIVATE) == -1) {
+    perror("oss: Error: Failed to initialize message queue\n");
+    if(detachandremove(shmid, process_table) == -1)
+      perror("oss: Error: Failed to detach and remove memory\n");
+
+    return -1;
+  }
+
+
+  // Start Process Loop
+
 
   
 
@@ -288,9 +289,9 @@ int main(int argc, char *argv[]) {
     perror("oss: Error: Failure to detach and remove memory\n");
   }
   // - remove message queue(s)
-  // if(remmsgqueue() == -1) {
-  //   perror("oss: Error: Failed to remove message queue");
-  // }
+  if(remmsgqueue() == -1) {
+    perror("oss: Error: Failed to remove message queue");
+  }
 
 
   return 0;
