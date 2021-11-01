@@ -23,8 +23,12 @@ int main(int argc, char *argv[]) {
 
   srand(time(NULL) + getpid()); // re-seed the random
 
+  sleep(2);
 
-  // re-attach memory for message queue and process control block
+  return 0;
+
+
+  // re-attach memory for message queue and process control block?
 
   // Get Timeslice from message queue
 
@@ -55,13 +59,13 @@ int main(int argc, char *argv[]) {
   if(program_type == 0 && probability_temp <= CPU_BLOCK_PROBABILITY || program_type == 1 && probability_temp <= IO_BLOCK_PROBABILITY) {
     printf("Is Blocked. Generating r,s then putting in blocked queue with a message\n");
 
-    // get r [0,5] and s[0,1000] for the sec / ms
+    // get r [0,5] and s[0,1000] for the sec / ns
 
 
     // send message to queue
 
   }
-
+  
   return 0;
 }
 

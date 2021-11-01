@@ -2,6 +2,22 @@
 
 Nico Stranquist
 
+Professor Bhatia
+
+Usage:
+`oss [-h] [-s t] [-l f]`
+-h shows a help menu
+-s specifies t seconds
+-l specifies the name for the log file
 
 Project Description:
-Simulate an OS process scheduler and clock.
+This project uses the main executable, `oss`, to simulate the process scheduling portion in an operating system.
+oss utilizes shared memory to store a `process_table` data structure, which contains information about the program and the `process_control_block`.
+oss also makes use of message queues. It initializes and uses a queue to send and receive messages with the child process.
+While running, `oss` decides a random time in the future to call its next process. This process sends a message back to `oss` when it is done.
+The program will end when the specified sleep time (seconds) is reached, or if the processes created surpasses the max processes allowed (50).
+When the program is done running, all message queues and memory segments get cleaned up.
+
+Known Problems:
+If the program terminates with an interrupt, or anytime when a child process is still running, the memory cleanup will print a warning message that it failed. However, it did work the first time, but when there's a child it will fail the second time trying to destroy the memory.
+The solution must have something to do with manually exiting the child processes before finishing, but I did not figure that out.

@@ -48,6 +48,7 @@ void logmsg(const char *msg);
 int waitTimeIsUp();
 void generateReport();
 void cleanup();
+char* format_string(char*msg, int data);
 
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
@@ -56,7 +57,7 @@ int shmid;
 int queueid;
 
 int next_sec = 0;
-int next_ms = 0;
+int next_ns = 0;
 
 char *logfileName = NULL;
 
@@ -208,10 +209,11 @@ int main(int argc, char *argv[]) {
   }
 
   // Start Process Loop
-  while(process_table->total_processes < 50) {
+  while(process_table->total_processes < MAX_PROCESSES) {
     printf("\n");
+    printf("process #%d\n", process_table->total_processes);
 
-    // Generate Next Time for child - rand: sec [0,2), ms[0, INT_MAX)
+    // Generate Next Time for child - rand: sec [0,2), ns[0, INT_MAX)
     if(waitTimeIsUp() == 0) {
       // cpu in idle state, waiting for next process
       printf("oss in idle state\n");
@@ -224,6 +226,21 @@ int main(int argc, char *argv[]) {
       printf("ready for next process\n");
 
       // setup the next process
+      int is_table_full = 1;
+      if(is_table_full == 0) {
+        printf("process table is full\n");
+        //      skip the generation, determine another time to try and generate a new process
+        //      log to log file that process table is full ("OSS: Process table is full at time t")
+        char *msg = format_string("OSS: Process table is full at time: ", process_table->sec);
+        strcat(msg, ":");
+        msg = format_string(msg, process_table->ns);
+        logmsg(msg);
+
+        cleanup();
+        continue;
+      }
+
+      printf("table not full. forking\n");
 
 
       // Fork, then return
@@ -238,18 +255,25 @@ int main(int argc, char *argv[]) {
         // attach memory again as child
         process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
 
-        
+        printf("in child\n");
 
-        
+
+        // execl
+        execl("./user", "./user", (char*)NULL); // no args
+        perror("oss: Error: Child failed to execl\n");
+        exit(0);
       }
       else {
         // in parent
-        int statis
-        pid_t wpid = waitpid(child_pid, &status);
+        // int status;
+        // pid_t wpid = waitpid(child_pid, &status, 0);
+        pid_t wpid = wait(NULL);
         if (wpid == -1) {
           perror("runsim: Error: Failed to wait for child\n");
           
         }
+        // child has finished. generate next time
+        printf("exited child\n");
       }
 
       // increment total processes that have ran
@@ -345,12 +369,15 @@ int main(int argc, char *argv[]) {
 }
 
 void cleanup() {
+  process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
   if(detachandremove(shmid, process_table) == -1) {
     perror("oss: Error: Failure to detach and remove memory\n");
   }
+  else printf("success detatch\n");
   if(remmsgqueue() == -1) {
     perror("oss: Error: Failed to remove message queue");
   }
+  else printf("success remove msgqueue\n");
 }
 
 // From textbook
@@ -379,9 +406,9 @@ int detachandremove(int shmid, void *shmaddr) {
 
 // Helper Functions:
 int waitTimeIsUp() {
-  // compare next_sec and next_ms with what's in the process table
+  // compare next_sec and next_ns with what's in the process table
   if(next_sec <= process_table->sec) {
-    if(next_ms <= process_table->ms) {
+    if(next_ns <= process_table->ns) {
       return 1;
     }
   }
@@ -391,11 +418,11 @@ int waitTimeIsUp() {
 
 void generateUserProcessInterval() {
   int rand_sec = getRandom(2);
-  int rand_ms = getRandom(INT_MAX);
+  int rand_ns = getRandom(INT_MAX);
 
   // set ints
   next_sec = rand_sec;
-  next_ms = rand_ms;
+  next_ns = rand_ns;
 }
 
 // log program results to file
@@ -424,26 +451,21 @@ void generateReport() {
 
   for(int i=0; i<4; i++) {
     char buf[100];
-    if (asprintf(&report_info, "%d", report[i]) == -1) {
-      perror("oss: Warning: asprintf failed\n");
-    } else {
-      strcat(strcpy(buf, report_str[i]), report_info);
-      printf("%s\n", buf);
-      logmsg(buf);
-      free(report_info);
-    }
+    report_info = format_string(report_str[i], report[i]);
+    logmsg(report_info);
   }
 
   // calculate total idle time
+  char *idle_info;
   char *total_idle_time_str = "Total Idle Time: ";
-  if (asprintf(&report_info, "sec: %d\tms: %d", process_table->sec, process_table->ms) == -1) {
+  if (asprintf(&idle_info, "sec: %d\tns: %d", process_table->sec, process_table->ns) == -1) {
     perror("oss: Warning: asprintf failed\n");
   } else {
     char buf[100];
-    strcat(strcpy(buf, total_idle_time_str), report_info);
+    strcat(strcpy(buf, total_idle_time_str), idle_info);
     printf("%s\n", buf);
     logmsg(buf);
-    free(report_info);
+    free(idle_info);
   }
 }
 
@@ -477,3 +499,16 @@ void logmsg(const char *msg) {
   fclose(fp);
 }
 
+char* format_string(char*msg, int data) {
+  char *temp;
+  char *buf;
+  if (asprintf(&temp, "%d", data) == -1) {
+    perror("oss: Warning: string format failed\n");
+    return "";
+  } else {
+    strcat(strcpy(buf, msg), temp);
+    printf("%s\n", buf);
+    free(temp);
+    return buf;
+  }
+}

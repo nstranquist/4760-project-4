@@ -14,7 +14,7 @@ struct ProcessControlBlock {
 // Process Table - Process Control Block for each of the user's processes and Information to manage child process scheduling
 struct ProcessTable {
   int sec;
-  int ms;
+  int ns;
 
   int total_processes;
   int total_wait_time;
@@ -22,7 +22,7 @@ struct ProcessTable {
   int total_time_in_system;
   int total_cpu_time;
   int total_idle_sec;
-  int total_idle_ms;
+  int total_idle_ns;
 
   // process control blocks
   int pcb_vector[MAX_PROCESSES];
@@ -33,7 +33,7 @@ struct ProcessTable {
 };
 
 // functions for managing the process table
-void addTimeToClock(int sec, int ms);
+void addTimeToClock(int sec, int ns);
 void incrementClockRound();
 
 // Helper Function ides

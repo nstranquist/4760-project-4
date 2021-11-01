@@ -11,31 +11,31 @@ struct ProcessTable *process_table;
 
 // function implementations to work with process table
 void incrementClockRound(int isIdle) {
-  // get random ms [0,1000]
-  int ms = getRandom(1000);
+  // get random ns [0,1000]
+  int ns = getRandom(1000);
 
-  // create new time with 1 + ms
-  addTimeToClock(1, ms);
+  // create new time with 1 + ns
+  addTimeToClock(1, ns);
 
   if(isIdle == 1) {
     process_table->total_idle_sec += 1;
-    process_table->total_idle_ms += ms;
+    process_table->total_idle_ns += ns;
   }
 }
 
-void addTimeToClock(int sec, int ms) {
+void addTimeToClock(int sec, int ns) {
   // add seconds
   process_table->sec += sec;
 
-  // check ms for overflow, handle accordingly
-  if((process_table->ms + ms) >= 1000) {
-    int remaining_ms = (process_table-> ms + ms) - 1000;
+  // check ns for overflow, handle accordingly
+  if((process_table->ns + ns) >= 1000000) {
+    int remaining_ns = (process_table-> ns + ns) - 1000000;
     process_table->sec += 1;
-    process_table->ms = remaining_ms;
+    process_table->ns = remaining_ns;
   }
   else
-    process_table->ms += ms;
+    process_table->ns += ns;
   
   printf("\n");
-  printf("sec: %d\tms: %d\n", process_table->sec, process_table->ms);
+  printf("sec: %d\tns: %d\n", process_table->sec, process_table->ns);
 }
