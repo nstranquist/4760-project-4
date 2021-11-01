@@ -121,7 +121,11 @@ int main(int argc, char *argv[]) {
   while((option = getopt(argc, argv, "hs:l:")) != -1) {
     switch(option) {
       case 'h':
-        printf("is help\n");
+        printf("\nProgram Help:\n");
+        printf("Usage: ./oss [-h] [-s t] [-l f]\n");
+        printf("Where h is help, t is the time in seconds, and f is the logfile name\n");
+        printf("If none are specified, it will resort to the defaults: t=50 seconds and f=oss.log\n\n");
+        return 0;
         break;
       case 's':
         if(!atoi(optarg)) {
@@ -133,10 +137,8 @@ int main(int argc, char *argv[]) {
           perror("oss: Error: Seconds cannot be less than 0\n");
           return 1;
         }
-        printf("is secs: %d\n", seconds);
         break;
       case 'l':
-        printf("is logfile name: %s\n", optarg);
         logfileName = optarg;
         break;
       default:
@@ -202,9 +204,7 @@ int main(int argc, char *argv[]) {
   // Initialize Message Queue
   if(initqueue(IPC_PRIVATE) == -1) {
     perror("oss: Error: Failed to initialize message queue\n");
-    
     cleanup();
-
     return -1;
   }
 
@@ -236,7 +236,6 @@ int main(int argc, char *argv[]) {
         msg = format_string(msg, process_table->ns);
         logmsg(msg);
 
-        cleanup();
         continue;
       }
 
