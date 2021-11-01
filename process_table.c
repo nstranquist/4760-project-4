@@ -19,8 +19,17 @@ void incrementClockRound() {
 }
 
 void addTimeToClock(int sec, int ms) {
+  // add seconds
   process_table->sec += sec;
-  process_table->ms += ms;
+
+  // check ms for overflow, handle accordingly
+  if((process_table->ms + ms) >= 1000) {
+    int remaining_ms = (process_table-> ms + ms) - 1000;
+    process_table->sec += 1;
+    process_table->ms = remaining_ms;
+  }
+  else
+    process_table->ms += ms;
   
   printf("\n");
   printf("sec: %d\tms: %d\n", process_table->sec, process_table->ms);

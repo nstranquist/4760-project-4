@@ -224,7 +224,7 @@ int main(int argc, char *argv[]) {
     if(waitTimeIsUp() == 0) {
       // cpu in idle state, waiting for next process
       printf("oss in idle state\n");
-
+      process_table->total_processes++; // just for now
     }
     else {
       // ready for next process
@@ -349,9 +349,7 @@ int detachandremove(int shmid, void *shmaddr) {
 int waitTimeIsUp() {
   // compare next_sec and next_ms with what's in the process table
   if(next_sec <= process_table->sec) {
-    printf("secs are caught up\n");
     if(next_ms <= process_table->ms) {
-      printf("ms are caught up. wait time is up\n");
       return 1;
     }
   }
