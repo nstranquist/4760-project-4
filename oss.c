@@ -61,6 +61,7 @@ void freePid(int pid);
 int getPriority();
 void init_pids();
 void generate_next_time();
+Time getOverheadTime();
 // char** parseUserMessage(char *msg);
 
 // Use available_pids to keep track of the process control blocks (18), use to simulate Process Table
@@ -412,13 +413,20 @@ int main(int argc, char *argv[]) {
         printf("sent message to queue\n");
       }
 
+      // add time for overhead of context switching
+      Time overhead = getOverheadTime();
+
+      // add overhead time to process_table
+      process_table->sec = process_table->sec + overhead.sec;
+      process_table->ns = process_table->ns + overhead.ns;
+
       // declare string
       char msg[120];
-      snprintf(msg, sizeof(msg), "OSS: Process %d created at time: %d:%d", child_pid, process_table->sec, process_table->ns);
+      snprintf(msg, sizeof(msg), "OSS: Process %d Dispatched at time: %d:%d", ready_pid, process_table->sec, process_table->ns);
       fprintf(stderr, "msg: %s\n", msg);
       logmsg(msg);
 
-      // TODO: make WNOHANG
+      // TODO: make WNOHANG?
       pid_t wpid = wait(NULL);
       if (wpid == -1) {
         perror("oss: Error: Failed to wait for child\n");
@@ -489,15 +497,22 @@ int main(int argc, char *argv[]) {
       // print int results
       printf("msg int results:\nmsg_action: %d msg_pid: %d pid: %d msg_is_blocked: %d msg_sec: %d msg_ns: %d\n", msg_action, msg_pid, mymsg.pid, msg_is_blocked, msg_sec, msg_ns);
 
+      // add time difference to clock
+      process_table->sec = process_table->sec + msg_sec;
+      process_table->ns = process_table->ns + msg_ns;
+
       // log message
       char results_int_msg[120];
       if(msg_is_blocked == 0) {
-        snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d blocked at time: %d:%d", msg_pid, msg_sec, msg_ns);
+        snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d Blocked at time: %d:%d", mymsg.pid, process_table->sec, process_table->ns);
       }
       else {
-        snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d terminated at time: %d:%d", msg_pid, msg_sec, msg_ns);
+        snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d Terminated at time: %d:%d", mymsg.pid, process_table->sec, process_table->ns);
         // if terminated, reset the available_pids at index
         freePid(mymsg.pid);
+        // remove PCB from process table
+        int pcb_index = getPCBIndexByPid(mymsg.pid);
+        resetPCB(pcb_index);
       }
       logmsg(results_int_msg);
     }
@@ -712,4 +727,12 @@ void generate_next_time() {
 
   next_sec = process_table->sec + next_sec_diff;
   next_ns = process_table->ns + next_ns_diff;
+}
+
+Time getOverheadTime() {
+  Time overhead_time;
+  overhead_time.sec = 0;
+  int rand_ns = getRandom(1000);
+  overhead_time.ns = rand_ns;
+  return overhead_time;
 }

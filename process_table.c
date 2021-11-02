@@ -83,3 +83,20 @@ int getNextTableIndex() {
   }
   return -1;
 }
+
+void resetPCB(int index) {
+  process_table->pcb_array[index].pid = -1;
+  process_table->pcb_array[index].priority = 0;
+
+  process_table->pcb_array[index].total_time.sec = 0;
+  process_table->pcb_array[index].total_time.ns = 0;
+
+  process_table->pcb_array[index].last_burst_time.sec = 0;
+  process_table->pcb_array[index].last_burst_time.ns = 0;
+
+  process_table->pcb_array[index].arrival_time.sec = 0;
+  process_table->pcb_array[index].arrival_time.ns = 0;
+
+  process_table->pcb_array[index].wait_time.sec = 0;
+  process_table->pcb_array[index].wait_time.ns = 0;
+}

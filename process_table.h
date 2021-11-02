@@ -49,3 +49,4 @@ Time getClockTime();
 void initPCB(int table_index, int pid, int priority);
 int getPCBIndexByPid(int pid);
 int getNextTableIndex();
+void resetPCB(int index);
