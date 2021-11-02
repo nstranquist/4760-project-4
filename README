@@ -20,9 +20,5 @@ When the program is done running, all message queues and memory segments get cle
 A report is generated at the end of execution, with the information concerning the program's run results. It is in `oss.log` unless specified.
 
 Known Problems:
-- If the program terminates with an interrupt, or anytime when a child process is still running, the memory cleanup will print a warning message that it failed. However, it did work the first time, but when there's a child it will fail the second time trying to destroy the memory.
-The solution must have something to do with manually exiting the child processes before finishing, but I did not figure that out.
-
-- Logfile is generated with params but is not getting all of the information yet from the program
-
-- Could not get scheduling algorithm to work with the bit vector. Will throw Segmentation Fault (core dumped)
+- Logfile is generated with params but is not getting all of the information from the program in the report section
+- Scheduler runs through the program sequentially, with the process completing before being interrupted
