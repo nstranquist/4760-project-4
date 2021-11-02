@@ -423,8 +423,12 @@ int main(int argc, char *argv[]) {
       // declare string
       char msg[120];
       snprintf(msg, sizeof(msg), "OSS: Process %d Dispatched at time: %d:%d", ready_pid, process_table->sec, process_table->ns);
-      fprintf(stderr, "msg: %s\n", msg);
       logmsg(msg);
+
+      // log to log file total time of this dispatch
+      char *msg_text;
+      asprintf(&msg_text, "OSS: total time this dispatch was %d nanoseconds", overhead.ns);
+      logmsg(msg_text);
 
       // TODO: make WNOHANG?
       pid_t wpid = wait(NULL);

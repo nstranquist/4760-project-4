@@ -3,7 +3,7 @@
 
 #define MAX_TIME 3 // 3 real-life seconds
 
-#define MAX_PROCESSES 1 // 50
+#define MAX_PROCESSES 20 // 50
 
 #define DEFAULT_TIME 2
 
