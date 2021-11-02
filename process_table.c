@@ -10,26 +10,26 @@
 struct ProcessTable *process_table;
 
 // function implementations to work with process table
-void incrementClockRound(int isIdle) {
+Time incrementClockRound() {
   // get random ns [0,1000]
-  int ns = getRandom(1001);
+  int ns = getRandom(1001); // 1.xx is NOT nanoseconds.
+
+  // nanoseconds goes from 0 to MAX_INT
 
   // create new time with 1 + ns
-  addTimeToClock(1, ns);
+  Time time_diff = addTimeToClock(1, ns);
 
-  if(isIdle == 1) {
-    process_table->total_idle_sec += 1;
-    process_table->total_idle_ns += ns;
-  }
+  return time_diff;
 }
 
-void addTimeToClock(int sec, int ns) {
+// returns time difference to add to stats
+Time addTimeToClock(int sec, int ns) {
   // add seconds
   process_table->sec += sec;
 
   // check ns for overflow, handle accordingly
-  if((process_table->ns + ns) >= 1000000) {
-    int remaining_ns = (process_table-> ns + ns) - 1000000;
+  if((process_table->ns + ns) >= NANOSECONDS) {
+    int remaining_ns = (process_table-> ns + ns) - NANOSECONDS;
     process_table->sec += 1;
     process_table->ns = remaining_ns;
   }
@@ -38,10 +38,19 @@ void addTimeToClock(int sec, int ns) {
   
   printf("\n");
   printf("sec: %d\tns: %d\n", process_table->sec, process_table->ns);
+
+  Time time_diff = {sec, ns};
+
+  return time_diff;
 }
 
 
 int isTableFull() {
   // how to check?
   
+}
+
+Time getClockTime() {
+  Time time = {process_table->sec, process_table->ns};
+  return time;
 }

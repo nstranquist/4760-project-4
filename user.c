@@ -26,7 +26,6 @@ mymsg_t mymsg;
 extern struct ProcessTable *process_table;
 int size;
 int shmid;
-int queueid;
 
 char* format_string(char*msg, int data);
 

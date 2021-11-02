@@ -62,8 +62,6 @@ extern struct ProcessTable *process_table;
 mymsg_t mymsg;
 // struct MessageResult *message_result;
 int shmid;
-int queueid;
-int blocked_queueid;
 
 int next_sec = 0;
 int next_ns = 0;
@@ -229,7 +227,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Initialize Message Queue
-  queueid = initqueue(IPC_PRIVATE);
+  int queueid = initqueue(IPC_PRIVATE);
   if(queueid == -1) {
     perror("oss: Error: Failed to initialize message queue\n");
     cleanup();
@@ -237,7 +235,7 @@ int main(int argc, char *argv[]) {
   }
   process_table->queueid = queueid;
 
-  blocked_queueid = initqueue(IPC_PRIVATE);
+  int blocked_queueid = initqueue(IPC_PRIVATE);
   if(blocked_queueid == -1) {
     perror("oss: Error: Failed to initialize message queue\n");
     cleanup();
@@ -252,7 +250,7 @@ int main(int argc, char *argv[]) {
 
     // Generate Next Time for child - rand: sec [0,2), ns[0, INT_MAX)
     // ?
-    
+
     int next_sec_diff = getRandom(maxTimeBetweenNewProcsSecs+1);
     int next_ns_diff = getRandom(maxTimeBetweenNewProcsNS+1);
 
@@ -267,8 +265,11 @@ int main(int argc, char *argv[]) {
       printf("oss in idle state\n");
       process_table->total_processes++; // just for now
 
-      while(waitTimeIsUp() == 0)
-        incrementClockRound(1);
+      while(waitTimeIsUp() == 0) {
+        Time idle_time_diff = incrementClockRound();
+        process_table->total_idle_time.sec += idle_time_diff.sec;
+        process_table->total_idle_time.ns += idle_time_diff.ns;
+      }
     }
 
     // ready for next process
@@ -284,7 +285,7 @@ int main(int argc, char *argv[]) {
       asprintf(&msg, "OSS: Process table is full at time %d:%d", process_table->sec, process_table->ns);
       logmsg(msg);
 
-      incrementClockRound(1);
+      Time time_diff = incrementClockRound();
 
       continue;
     }
@@ -433,7 +434,7 @@ int main(int argc, char *argv[]) {
     // increment total processes that have ran
     process_table->total_processes++;
     
-    incrementClockRound(0);
+    incrementClockRound();
   }
 
 
@@ -497,6 +498,7 @@ int main(int argc, char *argv[]) {
   //    - avg wait time, avg time in system, avg cpu time, avg time a process waited in blocked queue for each type of process (cpu or io)
   //    - total time cpu spent in idle (waiting)
   fprintf(stderr, "program ending. total processes: %d\n", process_table->total_processes);
+
   generateReport();
 
   // Gracefully Shutdown
@@ -574,10 +576,14 @@ void generateReport() {
     return;
   }
 
-  int average_wait = process_table->total_wait_time / process_table->total_processes;
-  int average_time_in_system = process_table->total_time_in_system / process_table->total_processes;
-  int average_cpu_time = process_table->total_cpu_time / process_table->total_processes;
-  int average_process_wait = process_table->total_wait_time / process_table->total_processes;
+  int average_wait_sec = process_table->total_wait_time.sec / process_table->total_processes;
+  int average_wait_ns = process_table->total_wait_time.ns / process_table->total_processes;
+  int average_time_in_system_sec = process_table->total_time_in_system.sec / process_table->total_processes;
+  int average_time_in_system_ns = process_table->total_time_in_system.ns / process_table->total_processes;
+  int average_cpu_time_sec = process_table->total_cpu_time.sec / process_table->total_processes;
+  int average_cpu_time_ns = process_table->total_cpu_time.ns / process_table->total_processes;
+  int average_process_wait_sec = process_table->total_wait_time.sec / process_table->total_processes;
+  int average_process_wait_ns = process_table->total_wait_time.ns / process_table->total_processes;
 
   char avg_wait_str[100];
   char avg_time_in_system_str[100];
@@ -585,11 +591,11 @@ void generateReport() {
   char avg_process_wait_str[100];
   char total_idle_time_str[100];
 
-  snprintf(avg_wait_str, sizeof(avg_wait_str), "Average Wait: %d", average_wait);
-  snprintf(avg_time_in_system_str, sizeof(avg_time_in_system_str), "Average Time in System: %d", average_time_in_system);
-  snprintf(avg_cpu_time_str, sizeof(avg_cpu_time_str), "Average CPU Time: %d", average_cpu_time);
-  snprintf(avg_process_wait_str, sizeof(avg_process_wait_str), "Average Process Wait: %d", average_process_wait);
-  snprintf(total_idle_time_str, sizeof(total_idle_time_str), "Total Idle Time: %dsec %dns", process_table->sec, process_table->ns);
+  snprintf(avg_wait_str, sizeof(avg_wait_str), "Average Wait: %d:%d", average_wait_sec, average_wait_ns);
+  snprintf(avg_time_in_system_str, sizeof(avg_time_in_system_str), "Average Time in System: %d:%d", average_time_in_system_sec, average_time_in_system_ns);
+  snprintf(avg_cpu_time_str, sizeof(avg_cpu_time_str), "Average CPU Time: %d:%d", average_cpu_time_sec, average_cpu_time_ns);
+  snprintf(avg_process_wait_str, sizeof(avg_process_wait_str), "Average Process Wait: %d:%d", average_process_wait_sec, average_process_wait_ns);
+  snprintf(total_idle_time_str, sizeof(total_idle_time_str), "Total Idle Time: %d:%d", process_table->sec, process_table->ns);
 
   logmsg("\nFinal Report:");
   logmsg(avg_wait_str);
@@ -654,6 +660,4 @@ int getNextIndex() {
 
 void initProcessBlock(int index) {
   bitvector[index] = 1; // activate
-  process_table->pcb->pid = 0;
-  process_table->pcb->type = 1;
 }
