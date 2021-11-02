@@ -33,8 +33,9 @@ Time incrementClockRound() {
 
 // returns time difference to add to stats
 Time addTimeToClock(int sec, int ns) {
+  printf("prev sec: %d\tns: %d\n", process_table->sec ,process_table->ns);
   // add seconds
-  process_table->sec += sec;
+  process_table->sec = process_table->sec + sec;
 
   // check ns for overflow, handle accordingly
   if((process_table->ns + ns) >= NANOSECONDS) {
@@ -46,9 +47,11 @@ Time addTimeToClock(int sec, int ns) {
     process_table->ns += ns;
   
   printf("\n");
-  printf("sec: %d\tns: %d\n", process_table->sec, process_table->ns);
+  printf("next sec: %d\tns: %d\n", process_table->sec, process_table->ns);
 
-  Time time_diff = {sec, ns};
+  Time time_diff;
+  time_diff.sec = sec;
+  time_diff.ns = ns;
 
   return time_diff;
 }
@@ -69,14 +72,13 @@ int getPCBIndexByPid(int pid) {
       return i;
     }
   }
-  perror("oss: Warning: Pcb with pid specified was not found\n");
+  fprintf(stderr, "oss: Warning: Pcb with pid specified was not found\n");
   return -1;
 }
 
 int getNextTableIndex() {
   for (int i = 0; i < NUMBER_PCBS; i++) {
     if(process_table->pcb_array[i].pid == -1) {
-      printf("returning i");
       return i;
     }
     printf("not -1 at i: %d, is: %d\n", i, process_table->pcb_array[i].pid);

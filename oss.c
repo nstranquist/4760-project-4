@@ -24,7 +24,6 @@
 #include <math.h>
 
 #include "config.h"
-// #include "user.h"
 #include "process_table.h"
 #include "utils.h"
 #include "queue.h"
@@ -79,6 +78,7 @@ int shmid;
 
 int next_sec = 0;
 int next_ns = 0;
+int quantum = 10;
 
 char *logfileName = NULL;
 
@@ -297,13 +297,11 @@ int main(int argc, char *argv[]) {
         perror("oss: Error: Failed to get next pid\n");
       }
       printf("scheduling pid: %d\n", next_pid);
-      printf("queue size before: %d\n", ready_queue.size);
       int result = enqueue(&ready_queue, next_pid);
       if(result == 0) {
         printf("queue is full. skipping the generation\n");
         process_table->total_processes--;
       }
-      printf("queue size after: %d\n", ready_queue.size);
       process_table->total_processes++;
 
       // add message to log that next_pid was added to ready queue at time sec:ns
@@ -403,8 +401,10 @@ int main(int argc, char *argv[]) {
       // get size of buf_str
       int buf_size = strlen(buf_str);
 
+      // give child its timeslice size Quantum
+
       // send message to queue
-      if(msgwrite(buf_str, buf_size, process_type, process_table->queueid, ready_pid) == -1) {
+      if(msgwrite(buf_str, buf_size, process_type, process_table->queueid, ready_pid, quantum) == -1) {
         perror("oss: Error: Failed to send message to queue\n");
         cleanup();
         return -1;
@@ -438,18 +438,12 @@ int main(int argc, char *argv[]) {
         return 1;
       }
 
-      fprintf(stderr, "out of msgwrite. queueid: %d\n", process_table->queueid);
-
       int msg_size = msgrcv(process_table->queueid, &mymsg, MAX_MSG_SIZE, 0, 0);
       if(msg_size == -1) {
         perror("oss: Error: Could not receive message from child\n");
         cleanup();
         return 1;
       }
-
-      // cleanup process control table
-      process_table->pcb_array[next_table_index].pid = -1;
-      process_table->pcb_array[next_table_index].priority = 0;
 
       // TODO: add timeslice to mymsg, parse here
 
@@ -502,8 +496,7 @@ int main(int argc, char *argv[]) {
       printf("msg int results:\nmsg_action: %d msg_pid: %d pid: %d msg_is_blocked: %d msg_sec: %d msg_ns: %d\n", msg_action, msg_pid, mymsg.pid, msg_is_blocked, msg_sec, msg_ns);
 
       // add time difference to clock
-      process_table->sec = process_table->sec + msg_sec;
-      process_table->ns = process_table->ns + msg_ns;
+      process_table->ns = process_table->ns + mymsg.timeslice;
 
       // log message
       char results_int_msg[120];
@@ -512,11 +505,11 @@ int main(int argc, char *argv[]) {
       }
       else {
         snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d Terminated at time: %d:%d", mymsg.pid, process_table->sec, process_table->ns);
-        // if terminated, reset the available_pids at index
-        freePid(mymsg.pid);
         // remove PCB from process table
         int pcb_index = getPCBIndexByPid(mymsg.pid);
         resetPCB(pcb_index);
+        // if terminated, reset the available_pids at index
+        freePid(mymsg.pid);
       }
       logmsg(results_int_msg);
     }

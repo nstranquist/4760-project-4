@@ -11,8 +11,8 @@
 #include <string.h>
 #include "user.h"
 #include "utils.h"
-#include "queue.h"
 #include "process_table.h"
+#include "queue.h"
 
 #define TERMINATE_PROBABILITY 0.1
 
@@ -63,23 +63,19 @@ int main(int argc, char *argv[]) {
   }
   else fprintf(stderr, "finished getting msg\n");
 
-  printf("msg size: %d\n", size);
+  printf("\nmsg pid: %d\n", mymsg.pid);
+  printf("msg timeslice: %d\n\n", mymsg.timeslice);
 
-  printf("msg text: %s\n", mymsg.mtext);
-
-  printf("msg type: %ld\n", mymsg.mtype);
-
-  printf("msg pid: %d\n", mymsg.pid);
-
-  // printf("msg timeslice: %d:%d\n", mymsg.timeslice.sec, mymsg.timeslice.ns);
-
-  // // get time slice from message
-  // int timeslice = mymsg.mtext; // get timeslice from message text
+  // get timeslice from message queue
+  int timeslice = mymsg.timeslice;
 
   // parse msg (util str_slice)
+  int time_used = timeslice;
+  if(timeslice > 0)
+    time_used = getRandom(timeslice);
 
   // send message back to oss
-  if((size = msgwrite(mymsg.mtext, size + 1, mymsg.mtype, process_table->queueid, mymsg.pid)) == -1) {
+  if((size = msgwrite(mymsg.mtext, size + 1, mymsg.mtype, process_table->queueid, mymsg.pid, time_used)) == -1) {
     perror("oss: Error: could not send message\n");
     return 1;
   }
@@ -89,35 +85,21 @@ int main(int argc, char *argv[]) {
 
   return 0;
 
-
-  // re-attach memory for message queue and process control block?
-
-  // Get Timeslice from message queue
-  int timeslice_sec = 1;
-  int timeslice_ns = 500;
-
-  
   // use TERMINATE_PROBABILITY to determine if program will terminate
   double terminate_temp = (double)rand() / RAND_MAX;
   if(terminate_temp <= TERMINATE_PROBABILITY) {
     printf("Will terminate\n");
 
     // use random amount of its timeslice before terminating (no sleep delay)
-    int time_used_sec = getRandom(timeslice_sec+1);
-    int time_used_ns = getRandom(timeslice_ns+1);
-
-    printf("using %d sec, %d ns time of timeslice\n", time_used_sec, time_used_ns);
+    printf("using %d ns time of timeslice\n", time_used);
 
     // tell oss (send msg) it has terminated and how much of timeslice was used
     // 1. update sharedmem values
     // 2. send message back to parent
-    char buf[MAXSIZE] = "OSS: Terminated with Time used ";
-
-    format_string(buf, time_used_sec);
-    strcat(buf, ":");
-    format_string(buf, time_used_ns);
-
-    msgwrite(format_string, 52, mymsg.mtype, process_table->queueid, mymsg.pid);
+    char buf[MAXSIZE] = "DISPATCH-PROCESS-TERMINATED-";
+    format_string(buf, time_used);
+    strcat(buf, "-_");
+    msgwrite(format_string, 52, mymsg.mtype, process_table->queueid, mymsg.pid, time_used);
 
     return 0;
   }
@@ -141,16 +123,15 @@ int main(int argc, char *argv[]) {
     strcat(buf, "-");
     buf = format_string(buf, s);
 
-    msgwrite(buf, 35, mymsg.mtype, process_table->queueid, mymsg.pid);
+    msgwrite(buf, 35, mymsg.mtype, process_table->queueid, mymsg.pid, time_used);
   }
   else {
     printf("Is not blocked. Will tell oss and give timeslice\n");
     
     char *buf = "DISPATCH-PROCESS-FINISHED-";
-    buf = format_string(buf, timeslice_sec);
-    strcat(buf, "-");
-    buf = format_string(buf, timeslice_ns);
-    msgwrite(buf, 40, mymsg.mtype, process_table->queueid, mymsg.pid);
+    buf = format_string(buf, timeslice);
+    strcat(buf, "-_");
+    msgwrite(buf, 40, mymsg.mtype, process_table->queueid, mymsg.pid, time_used);
   }
   
   return 0;

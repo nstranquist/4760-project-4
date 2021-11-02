@@ -1,5 +1,7 @@
 
 // Declare constants
+#ifndef CONFIG_H
+#define CONFIG_H
 
 #define MAX_TIME 3 // 3 real-life seconds
 
@@ -18,3 +20,10 @@
 #define QUANTUM 10
 
 #define NUMBER_PCBS 18
+
+typedef struct {
+  int sec;
+  int ns;
+} Time;
+
+#endif

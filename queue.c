@@ -60,8 +60,7 @@ int msgprintf(char *fmt, int msg_type, int queueid, ...) {               /* outp
   return 0;
 }
 
-int msgwrite(void *buf, int len, int msg_type, int queueid, int pid) {     /* output buffer of specified length */
-  printf("(msgwrite) size: %d\n", len);
+int msgwrite(void *buf, int len, int msg_type, int queueid, int pid, int timeslice) {     /* output buffer of specified length */
   int error = 0;
   mymsg_t *mymsg;
 
@@ -69,14 +68,14 @@ int msgwrite(void *buf, int len, int msg_type, int queueid, int pid) {     /* ou
     perror("oss: Error: Could not allocate space for message\n");
     return -1;
   }
-  else {
-    printf("(msgwrite) malloc success\n");
-  }
 
   memcpy(mymsg->mtext, buf, len);
 
   mymsg->mtype = msg_type; // 1 or 2
   mymsg->pid = pid;
+  mymsg->timeslice = timeslice;
+
+  fprintf(stderr, "sending timeslice\n");
 
   if (msgsnd(queueid, mymsg, len, 0) == -1) {
     perror("oss: Error: Could not send the message\n");
