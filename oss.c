@@ -59,6 +59,7 @@ char* format_string(char*msg, int data);
 int getNextPid();
 void freePid(int pid);
 int getPriority();
+void init_pids();
 // char** parseUserMessage(char *msg);
 
 // Use available_pids to keep track of the process control blocks (18), use to simulate Process Table
@@ -80,7 +81,7 @@ int next_ns = 0;
 char *logfileName = NULL;
 
 // will be used to keep track of process id's already taken. not a queue
-int available_pids[18] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+int available_pids[50];
 
 // oss will select process to run, then schedule it for execution
 // - select with round robin with some priority
@@ -262,11 +263,15 @@ int main(int argc, char *argv[]) {
   low_priority_queue = init_circular_queue();
   high_priority_queue = init_circular_queue();
 
+  init_pids();
+
   // fill process table
   init_process_table_pcbs();
 
   // Start Process Loop
   while(process_table->total_processes < MAX_PROCESSES) {
+    Time round_diff = incrementClockRound();
+
     // Generate Next Time for child - 0-2 secs, should be avg 1. second overall
     int next_sec_diff = getRandom(maxTimeBetweenNewProcsSecs);
     int next_ns_diff = getRandom(maxTimeBetweenNewProcsNS);
@@ -280,6 +285,9 @@ int main(int argc, char *argv[]) {
     int next_pid;
     if(process_table->total_processes < MAX_PROCESSES) {
       next_pid = getNextPid();
+      if(next_pid == -1) {
+        perror("oss: Error: Failed to get next pid\n");
+      }
       printf("scheduling pid: %d\n", next_pid);
       printf("queue size before: %d\n", ready_queue.size);
       int result = enqueue(&ready_queue, next_pid);
@@ -289,6 +297,11 @@ int main(int argc, char *argv[]) {
       }
       printf("queue size after: %d\n", ready_queue.size);
       process_table->total_processes++;
+
+      // add message to log that next_pid was added to ready queue at time sec:ns
+      char *msg_text = malloc(sizeof(char) * MAX_MSG_SIZE);
+      sprintf(msg_text, "OSS: Generating process with PID %d and putting it in ready queue at time %d:%d", next_pid, process_table->sec, process_table->ns);
+      logmsg(msg_text);
     }
     else
       printf("max processes has been reached\n");
@@ -297,11 +310,9 @@ int main(int argc, char *argv[]) {
       // cpu in idle state, skip until time for next process to be scheduled
       printf("oss in idle state\n");
 
-      Time time_diff = incrementClockRound();
-
       // add time_diff to total_idle_time
-      process_table->total_idle_time.sec += time_diff.sec;
-      process_table->total_idle_time.ns += time_diff.ns;
+      process_table->total_idle_time.sec += round_diff.sec;
+      process_table->total_idle_time.ns += round_diff.ns;
 
       continue;
     }
@@ -320,11 +331,9 @@ int main(int argc, char *argv[]) {
       asprintf(&msg, "OSS: Process table is full at time %d:%d", process_table->sec, process_table->ns);
       logmsg(msg);
 
-      incrementClockRound();
-
       // // add time_diff to total_wait_time
-      // process_table->total_wait_time.sec += time_diff.sec;
-      // process_table->total_wait_time.ns += time_diff.ns;
+      // process_table->total_wait_time.sec += round_diff.sec;
+      // process_table->total_wait_time.ns += round_diff.ns;
       continue;
     }
     else
@@ -334,10 +343,9 @@ int main(int argc, char *argv[]) {
     int ready_pid = dequeue(ready_queue);
     if(ready_pid == -1) {
       printf("ready queue is empty\n");
-      Time time_diff = incrementClockRound();
       // add time_diff to idle_time
-      process_table->total_idle_time.sec += time_diff.sec;
-      process_table->total_idle_time.ns += time_diff.ns;
+      process_table->total_idle_time.sec += round_diff.sec;
+      process_table->total_idle_time.ns += round_diff.ns;
       continue;
     }
     printf("initializing pcb for pid: %d\n", ready_pid);
@@ -484,9 +492,7 @@ int main(int argc, char *argv[]) {
       }
       logmsg(results_int_msg);
     }
-    
-    incrementClockRound();
-  }
+      }
 
   // Wait for all children to finish, after the main loop is complete
   while(wait(NULL) > 0) {
@@ -681,4 +687,10 @@ void freePid(int pid) {
 
 int getPriority() {
   return 1;
+}
+
+void init_pids() {
+  for(int i=0; i<50; i++) {
+    available_pids[i] = -1;
+  }
 }
