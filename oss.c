@@ -250,6 +250,9 @@ int main(int argc, char *argv[]) {
     printf("\n");
     printf("process #%d\n", process_table->total_processes);
 
+    // Generate Next Time for child - rand: sec [0,2), ns[0, INT_MAX)
+    // ?
+    
     int next_sec_diff = getRandom(maxTimeBetweenNewProcsSecs+1);
     int next_ns_diff = getRandom(maxTimeBetweenNewProcsNS+1);
 
@@ -258,7 +261,6 @@ int main(int argc, char *argv[]) {
 
     printf("next sec: %d, next ns: %d\n", next_sec, next_ns);
 
-    // Generate Next Time for child - rand: sec [0,2), ns[0, INT_MAX)
     // if wait time is not up
     if(waitTimeIsUp() == 0) {
       // cpu in idle state, waiting for next process
@@ -289,9 +291,6 @@ int main(int argc, char *argv[]) {
 
     printf("table not full\n");
 
-    // allocate space, initialize process control block
-    bitvector[index] = 1;
-
     double process_type_temp = (double)rand() / RAND_MAX;
     int process_type;
     if(process_type < CPU_BOUND_PROCESS_PERCENTAGE) {
@@ -305,22 +304,7 @@ int main(int argc, char *argv[]) {
       process_type = 2;
     }
 
-    // send message to queue
-    char *buf_str;
-    asprintf(&buf_str, "DISPATCH-PROCESS-_-%d-%d", process_table->sec, process_table->ns);
-
-    // get size of buf_str
-    int buf_size = strlen(buf_str);
-
-    // send message to queue
-    if(msgwrite(buf_str, buf_size, process_type, process_table->queueid) == -1) {
-      perror("oss: Error: Failed to send message to queue\n");
-      cleanup();
-      return -1;
-    }
-    else {
-      printf("sent message to queue\n");
-    }
+    
 
     // Fork, then return
     pid_t child_pid = fork();
@@ -345,6 +329,27 @@ int main(int argc, char *argv[]) {
     }
     else {
       // in parent
+
+      // send message to queue
+      char *buf_str;
+      asprintf(&buf_str, "DISPATCH-%d-_-%d-%d", child_pid, process_table->sec, process_table->ns);
+
+      // get size of buf_str
+      int buf_size = strlen(buf_str);
+
+      // send message to queue
+      if(msgwrite(buf_str, buf_size, process_type, process_table->queueid) == -1) {
+        perror("oss: Error: Failed to send message to queue\n");
+        cleanup();
+        return -1;
+      }
+      else {
+        printf("sent message to queue\n");
+      }
+
+      // allocate space, initialize process control block
+      bitvector[index] = child_pid;
+
       // declare string
       char msg[120];
       snprintf(msg, sizeof(msg), "OSS: Process %d created at time: %d:%d", child_pid, process_table->sec, process_table->ns);
@@ -414,11 +419,13 @@ int main(int argc, char *argv[]) {
 
       // log message
       char results_int_msg[120];
-      if(msg_is_blocked == 1) {
+      if(msg_is_blocked == 0) {
         snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d blocked at time: %d:%d", msg_pid, msg_sec, msg_ns);
       }
       else {
         snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d terminated at time: %d:%d", msg_pid, msg_sec, msg_ns);
+        // if terminated, reset the bitvector at index
+        bitvector[index] = 0;
       }
       logmsg(results_int_msg);
     }
