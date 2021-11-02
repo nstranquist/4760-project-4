@@ -9,12 +9,21 @@
 
 struct ProcessTable *process_table;
 
+void init_process_table_pcbs() {
+  for (int i = 0; i < NUMBER_PCBS; i++) {
+    process_table->pcb_array[i].pid == -1;
+    process_table->pcb_array[i].priority == 0;
+    // ...
+  }
+}
+
 // function implementations to work with process table
 Time incrementClockRound() {
-  // get random ns [0,1000]
-  int ns = getRandom(1001); // 1.xx is NOT nanoseconds.
+  // get random ns [0,1000] (ms)
+  int ms = getRandom(MILISECONDS+1);
 
-  // nanoseconds goes from 0 to MAX_INT
+  // convert ms to ns
+  int ns = ms * 1000000;
 
   // create new time with 1 + ns
   Time time_diff = addTimeToClock(1, ns);
@@ -29,7 +38,7 @@ Time addTimeToClock(int sec, int ns) {
 
   // check ns for overflow, handle accordingly
   if((process_table->ns + ns) >= NANOSECONDS) {
-    int remaining_ns = (process_table-> ns + ns) - NANOSECONDS;
+    int remaining_ns = (process_table->ns + ns) - NANOSECONDS;
     process_table->sec += 1;
     process_table->ns = remaining_ns;
   }
@@ -44,13 +53,30 @@ Time addTimeToClock(int sec, int ns) {
   return time_diff;
 }
 
-
-int isTableFull() {
-  // how to check?
-  
-}
-
 Time getClockTime() {
   Time time = {process_table->sec, process_table->ns};
   return time;
+}
+
+void initPCB(int table_index, int pid, int priority) {
+  process_table->pcb_array[table_index].pid = pid;
+  process_table->pcb_array[table_index].priority = priority;
+}
+
+int getPCBIndexByPid(int pid) {
+  for (int i = 0; i < NUMBER_PCBS; i++) {
+    if (process_table->pcb_array[i].pid == pid) {
+      return i;
+    }
+  }
+  perror("oss: Warning: Pcb with pid specified was not found\n");
+  return -1;
+}
+
+int getNextTableIndex() {
+  for (int i = 0; i < NUMBER_PCBS; i++) {
+    if(process_table->pcb_array[i].pid == -1)
+      return i;
+  }
+  return -1;
 }

@@ -4,6 +4,7 @@ user
 process_table
 utils
 queue
+circular_queue
 examples/
 .vscode/
 oss.log

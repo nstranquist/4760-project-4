@@ -8,7 +8,7 @@ typedef struct {
 
 
 // Define the Process Control Block structure
-struct ProcessControlBlock {
+typedef struct {
 	int pid;
   int priority;
 
@@ -18,7 +18,7 @@ struct ProcessControlBlock {
   Time wait_time;
 
   // timeslice? what else?
-};
+} PCB;
 
 // Process Table - Process Control Block for each of the user's processes and Information to manage child process scheduling
 struct ProcessTable {
@@ -26,7 +26,9 @@ struct ProcessTable {
   int ns;
 
   int queueid;
-  int blocked_queueid;
+  // int blocked_queueid; // moved to different "queue" structure
+
+  int running_pid; // to indicate which is in running state, help with scheduler
 
   int total_processes;
   Time total_wait_time;
@@ -36,15 +38,14 @@ struct ProcessTable {
   Time total_idle_time;
 
   // array of 18 PCBs
-  struct ProcessControlBlock pcb[18];
+  PCB pcb_array[NUMBER_PCBS];
 };
 
 // functions for managing the process table
+void init_process_table_pcbs();
 Time incrementClockRound();
 Time addTimeToClock(int sec, int ns);
 Time getClockTime();
-
-// Helper Function ides
-// int checkIfAnyRead();
-// int checkIfProcessFull();
-int isTableFull();
+void initPCB(int table_index, int pid, int priority);
+int getPCBIndexByPid(int pid);
+int getNextTableIndex();

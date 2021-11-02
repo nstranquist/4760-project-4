@@ -28,16 +28,19 @@
 #include "process_table.h"
 #include "utils.h"
 #include "queue.h"
+#include "circular_queue.h"
 
-#define maxTimeBetweenNewProcsNS 20
-#define maxTimeBetweenNewProcsSecs 20
+#define maxTimeBetweenNewProcsNS 1000000000 // nanoseconds/s, to ensure average ~1s between executions
+#define maxTimeBetweenNewProcsSecs 2
 #define DEFAULT_LOGFILE_NAME "oss.log"
 #define BLOCK_READY_OVERHEAD 10 // ms to add as overhead for moving process from blocked to ready
 
 // a constant representing the percentage of time a process launched an I/O-bound process or CPU-bound process. It should be weighted to generate more CPU-bound processes
-#define CPU_BOUND_PROCESS_PERCENTAGE 0.75
+#define CPU_BOUND_PROCESS_PERCENTAGE 75
 #define MAXLINE 1024
 #define MAX_MSG_SIZE 4096
+
+#define HIGH_PRIORITY_PERCENTAGE 50
 
 #define PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
 
@@ -53,14 +56,22 @@ int waitTimeIsUp();
 void generateReport();
 void cleanup();
 char* format_string(char*msg, int data);
-int getNextIndex();
+int getNextPid();
+void freePid(int pid);
+int getPriority();
 // char** parseUserMessage(char *msg);
 
-// Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
+// Use available_pids to keep track of the process control blocks (18), use to simulate Process Table
 
 extern struct ProcessTable *process_table;
 mymsg_t mymsg;
-// struct MessageResult *message_result;
+
+Queue ready_queue;
+Queue blocked_queue;
+Queue low_priority_queue;
+Queue high_priority_queue;
+// Queue *terminated_queue;
+
 int shmid;
 
 int next_sec = 0;
@@ -68,7 +79,16 @@ int next_ns = 0;
 
 char *logfileName = NULL;
 
-int bitvector[18] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+// will be used to keep track of process id's already taken. not a queue
+int available_pids[18] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
+// oss will select process to run, then schedule it for execution
+// - select with round robin with some priority
+// - ready queue will not be FIFO, will use priority scheduling that looks at age of processes, time process has been waiting
+// - 2-level feedback queue: "high priority queue" and "low priority queue"
+//    - attempt to put I/O bound in high priority queue
+//    - attempt to put CPU bound in low priority queue
+//    idea: allocate equally between low/high queues to start
 
 static void myhandler(int signum) {
   // is ctrl-c interrupt
@@ -99,6 +119,7 @@ static void myhandler(int signum) {
 	exit(0);
   signal(SIGQUIT, SIG_IGN);
 }
+
 // handlers and interrupts
 static int setupitimer(int sleepTime) {
   struct itimerval value;
@@ -235,49 +256,63 @@ int main(int argc, char *argv[]) {
   }
   process_table->queueid = queueid;
 
-  int blocked_queueid = initqueue(IPC_PRIVATE);
-  if(blocked_queueid == -1) {
-    perror("oss: Error: Failed to initialize message queue\n");
-    cleanup();
-    return -1;
-  }
-  process_table->blocked_queueid = blocked_queueid;
+  // Initialize Scheduling Queues
+  ready_queue = init_circular_queue();
+  blocked_queue = init_circular_queue();
+  low_priority_queue = init_circular_queue();
+  high_priority_queue = init_circular_queue();
+
+  // fill process table
+  init_process_table_pcbs();
 
   // Start Process Loop
   while(process_table->total_processes < MAX_PROCESSES) {
-    printf("\n");
-    printf("process #%d\n", process_table->total_processes);
-
-    // Generate Next Time for child - rand: sec [0,2), ns[0, INT_MAX)
-    // ?
-
-    int next_sec_diff = getRandom(maxTimeBetweenNewProcsSecs+1);
-    int next_ns_diff = getRandom(maxTimeBetweenNewProcsNS+1);
+    // Generate Next Time for child - 0-2 secs, should be avg 1. second overall
+    int next_sec_diff = getRandom(maxTimeBetweenNewProcsSecs);
+    int next_ns_diff = getRandom(maxTimeBetweenNewProcsNS);
 
     next_sec = process_table->sec + next_sec_diff;
     next_ns = process_table->ns + next_ns_diff;
 
     printf("next sec: %d, next ns: %d\n", next_sec, next_ns);
 
-    // if wait time is not up
-    if(waitTimeIsUp() == 0) {
-      // cpu in idle state, waiting for next process
-      printf("oss in idle state\n");
-      process_table->total_processes++; // just for now
-
-      while(waitTimeIsUp() == 0) {
-        Time idle_time_diff = incrementClockRound();
-        process_table->total_idle_time.sec += idle_time_diff.sec;
-        process_table->total_idle_time.ns += idle_time_diff.ns;
+    // schedule the process into ready queue
+    int next_pid;
+    if(process_table->total_processes < MAX_PROCESSES) {
+      next_pid = getNextPid();
+      printf("scheduling pid: %d\n", next_pid);
+      printf("queue size before: %d\n", ready_queue.size);
+      int result = enqueue(&ready_queue, next_pid);
+      if(result == 0) {
+        printf("queue is full. skipping the generation\n");
+        process_table->total_processes--;
       }
+      printf("queue size after: %d\n", ready_queue.size);
+      process_table->total_processes++;
+    }
+    else
+      printf("max processes has been reached\n");
+
+    if(waitTimeIsUp() == -1) {
+      // cpu in idle state, skip until time for next process to be scheduled
+      printf("oss in idle state\n");
+
+      Time time_diff = incrementClockRound();
+
+      // add time_diff to total_idle_time
+      process_table->total_idle_time.sec += time_diff.sec;
+      process_table->total_idle_time.ns += time_diff.ns;
+
+      continue;
     }
 
     // ready for next process
     printf("ready for next process\n");
 
     // setup the next process
-    int index = getNextIndex();
-    if(index == -1) {
+    int next_table_index = getNextTableIndex();
+    printf("next table index: %d\n", next_table_index);
+    if(next_table_index == -1) {
       printf("process table is full\n");
       //      skip the generation, determine another time to try and generate a new process
       //      log to log file that process table is full ("OSS: Process table is full at time t")
@@ -285,14 +320,29 @@ int main(int argc, char *argv[]) {
       asprintf(&msg, "OSS: Process table is full at time %d:%d", process_table->sec, process_table->ns);
       logmsg(msg);
 
-      Time time_diff = incrementClockRound();
+      incrementClockRound();
 
+      // // add time_diff to total_wait_time
+      // process_table->total_wait_time.sec += time_diff.sec;
+      // process_table->total_wait_time.ns += time_diff.ns;
       continue;
     }
+    else
+      printf("table not full\n");
 
-    printf("table not full\n");
+    // initialize the process control block
+    int ready_pid = dequeue(ready_queue);
+    if(ready_pid == -1) {
+      printf("ready queue is empty\n");
+      Time time_diff = incrementClockRound();
+      // add time_diff to idle_time
+      process_table->total_idle_time.sec += time_diff.sec;
+      process_table->total_idle_time.ns += time_diff.ns;
+      continue;
+    }
+    printf("initializing pcb for pid: %d\n", ready_pid);
 
-    double process_type_temp = (double)rand() / RAND_MAX;
+    double process_type_temp = (rand() % 100) + 1;
     int process_type;
     if(process_type < CPU_BOUND_PROCESS_PERCENTAGE) {
       printf("is cpu process\n");
@@ -305,7 +355,8 @@ int main(int argc, char *argv[]) {
       process_type = 2;
     }
 
-    
+    int next_priority = getPriority();
+    initPCB(next_table_index, ready_pid, next_priority);
 
     // Fork, then return
     pid_t child_pid = fork();
@@ -339,7 +390,7 @@ int main(int argc, char *argv[]) {
       int buf_size = strlen(buf_str);
 
       // send message to queue
-      if(msgwrite(buf_str, buf_size, process_type, process_table->queueid) == -1) {
+      if(msgwrite(buf_str, buf_size, process_type, process_table->queueid, ready_pid) == -1) {
         perror("oss: Error: Failed to send message to queue\n");
         cleanup();
         return -1;
@@ -348,15 +399,13 @@ int main(int argc, char *argv[]) {
         printf("sent message to queue\n");
       }
 
-      // allocate space, initialize process control block
-      bitvector[index] = child_pid;
-
       // declare string
       char msg[120];
       snprintf(msg, sizeof(msg), "OSS: Process %d created at time: %d:%d", child_pid, process_table->sec, process_table->ns);
       fprintf(stderr, "msg: %s\n", msg);
       logmsg(msg);
 
+      // TODO: make WNOHANG
       pid_t wpid = wait(NULL);
       if (wpid == -1) {
         perror("oss: Error: Failed to wait for child\n");
@@ -372,6 +421,11 @@ int main(int argc, char *argv[]) {
         cleanup();
         return 1;
       }
+
+      // TODO: add timeslice to mymsg, parse here
+
+
+      // if terminated, or finished, then take stats and add to totals, then remove from table
 
       // parse message result (using '-' as delimiter)
       printf("message data: %s, message type: %ld\n", mymsg.mtext, mymsg.mtype);
@@ -416,7 +470,7 @@ int main(int argc, char *argv[]) {
       }
 
       // print int results
-      printf("msg int results:\nmsg_action: %d msg_pid: %d msg_is_blocked: %d msg_sec: %d msg_ns: %d\n", msg_action, msg_pid, msg_is_blocked, msg_sec, msg_ns);
+      printf("msg int results:\nmsg_action: %d msg_pid: %d pid: %d msg_is_blocked: %d msg_sec: %d msg_ns: %d\n", msg_action, msg_pid, mymsg.pid, msg_is_blocked, msg_sec, msg_ns);
 
       // log message
       char results_int_msg[120];
@@ -425,69 +479,19 @@ int main(int argc, char *argv[]) {
       }
       else {
         snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d terminated at time: %d:%d", msg_pid, msg_sec, msg_ns);
-        // if terminated, reset the bitvector at index
-        bitvector[index] = 0;
+        // if terminated, reset the available_pids at index
+        freePid(mymsg.pid);
       }
       logmsg(results_int_msg);
     }
-
-    // increment total processes that have ran
-    process_table->total_processes++;
     
     incrementClockRound();
   }
 
-
-  // I) Running System Clock...
-  // II) Create User Processes at Random Intervals
-  //    - random int between 0 and 2 seconds....
-  //      - sec [0,2), ms [0, INT_MAX)
-
-
-  // 1. Setup the System Clock
-  // 2. Get a time for the next (first) process to spawn
-  // 3. Add time to clock until process spawns, which happens when the time for process is reached (or exceeded)
-  // 4. Start the User Process with "execl"
-  // 5. Get Time from Child process when it finishes (child randomly generates it)
-  //    - do this through shared memory or message queue
-  //    - add that time back to the system clock (sec/ms)
-  // 6. 
-
-  /**
-   * Ready To Start Program Logic. Remember:
-   * - system clock (sec, ms) should only be advanced by oss
-  **/
-
-
-  // Define and Attatch Shared Memory
-    // allocate shmem for simulated system clock - 2 unsigned integers:
-    //  - one stores seconds
-    //  - one stores milliseconds
-
-    // allote space for the process control block
-
-  // Begin Process Forking: Main Logic Loop
-  //  get a time in the future for when the first process will launch (check if process is active yet)
-
-  //  if no processes are in "ready state" to run, the system should incrememnt the clock until it is time to launch a new process
-
-  //  setup the new process: (will use random functions more than not)
-  //    IF: Process Table is full
-  //      skip the generation, determine another time to try and generate a new process
-  //      log to log file that process table is full ("OSS: Process table is full at time t")
-
-  //    ELSE: define/create the new process
-  //      generates by allocating and initializing the process control block for the process
-  //      forks the process
-  
-  //    generate a new time where it will launch a process, and schedule that process by sending a message to the Message Queue (check if I/O or CPU)
-
-  //    wait for a message back from the process that it has finished its task (transfer control to the child process code)
-
-  //  advance the system clock by 1.xx in each iteration of the loop
-  //    xx is the number of nanoseconds. xx is a random number from [0, 1000] to simulate overhead for activity
-
-
+  // Wait for all children to finish, after the main loop is complete
+  while(wait(NULL) > 0) {
+    printf("oss: Info: Waiting for all children to finish...\n");
+  }
 
   // End Program if:
   // 1. >3 seconds have passed
@@ -509,15 +513,19 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
+void priority() {
+  // priority scheduler for round robin
+  // - age of process
+  // - time the process has been waiting for since last cpu burst
+
+
+}
+
 void cleanup() {
   if(remmsgqueue(process_table->queueid) == -1) {
     perror("oss: Error: Failed to remove message queue");
   }
   else printf("success remove msgqueue\n");
-  if(remmsgqueue(process_table->blocked_queueid) == -1) {
-    perror("oss: Error: Failed to remove blocked message queue");
-  }
-  else printf("success remove blocked msgqueue\n");
   if(detachandremove(shmid, process_table) == -1) {
     perror("oss: Error: Failure to detach and remove memory\n");
   }
@@ -551,13 +559,16 @@ int detachandremove(int shmid, void *shmaddr) {
 // Helper Functions:
 int waitTimeIsUp() {
   // compare next_sec and next_ns with what's in the process table
-  if(next_sec <= process_table->sec) {
-    if(next_ns <= process_table->ns) {
-      return 1;
+  if(next_sec < process_table->sec) {
+    return 0;
+  }
+  if(next_sec == process_table->sec) {
+    if(next_ns < process_table->ns) {
+      return 0;
     }
   }
 
-  return 0; // 0 means not
+  return -1; // -1 means not
 }
 
 void generateUserProcessInterval() {
@@ -649,15 +660,25 @@ char* format_string(char*msg, int data) {
   }
 }
 
-int getNextIndex() {
+int getNextPid() {
   for(int i=0; i<18; i++) {
-    if(bitvector[i] == 0) {
+    if(available_pids[i] == -1) {
+      available_pids[i] = i;
       return i;
     }
   }
   return -1;
 }
 
-void initProcessBlock(int index) {
-  bitvector[index] = 1; // activate
+void freePid(int pid) {
+  for(int i=0; i<18; i++) {
+    if(available_pids[i] == pid) {
+      available_pids[i] = -1;
+      return;
+    }
+  }
+}
+
+int getPriority() {
+  return 1;
 }

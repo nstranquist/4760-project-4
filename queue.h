@@ -4,9 +4,10 @@
 typedef struct mymsg_t {
   long mtype;
   char mtext[MAX_MSG_SIZE];
+  int pid;
 } mymsg_t;
 
 int remmsgqueue(int queueid);
-int msgwrite(void *buf, int len, int msg_type, int queueid);
+int msgwrite(void *buf, int len, int msg_type, int queueid, int pid);
 int msgprintf(char *fmt, int type, int queueid, ...);
 int initqueue(int key);

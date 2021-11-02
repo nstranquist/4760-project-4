@@ -3,8 +3,8 @@ CC = gcc
 
 all: oss user
 
-oss: oss.o user.o process_table.o utils.o queue.o config.h
-	gcc -Wall -g -o oss oss.o process_table.o utils.o queue.o
+oss: oss.o user.o process_table.o utils.o queue.o circular_queue.o config.h
+	gcc -Wall -g -o oss oss.o process_table.o utils.o queue.o circular_queue.o
 
 user: user.o utils.o queue.o process_table.o
 	gcc -Wall -g -o user user.o utils.o queue.o process_table.o
@@ -18,8 +18,11 @@ utils: utils.o
 queue: queue.o
 	gcc -Wall -g -o queue queue.o
 
+circular_queue: circular_queue.o
+	gcc -Wall -g -o circular_queue circular_queue.o
+
 .c.o:
 	$(CC) -g -c $<
 
 clean:
-	rm -f *.o oss user process_table utils queue
+	rm -f *.o oss user process_table utils queue circular_queue

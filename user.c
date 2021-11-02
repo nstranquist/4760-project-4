@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
 
   fprintf(stderr, "finished attaching process table\n");
 
-  // Get message 
+  // Wait for timeslice message 
   if((size = msgrcv(process_table->queueid, &mymsg, MAXSIZE, 0, 0)) == -1) {
     perror("oss: Error: could not receive message\n");
     return 0;
@@ -69,13 +69,17 @@ int main(int argc, char *argv[]) {
 
   printf("msg type: %ld\n", mymsg.mtype);
 
+  printf("msg pid: %d\n", mymsg.pid);
+
+  // printf("msg timeslice: %d:%d\n", mymsg.timeslice.sec, mymsg.timeslice.ns);
+
   // // get time slice from message
   // int timeslice = mymsg.mtext; // get timeslice from message text
 
   // parse msg (util str_slice)
 
   // send message back to oss
-  if((size = msgwrite(mymsg.mtext, size + 1, mymsg.mtype, process_table->queueid)) == -1) {
+  if((size = msgwrite(mymsg.mtext, size + 1, mymsg.mtype, process_table->queueid, mymsg.pid)) == -1) {
     perror("oss: Error: could not send message\n");
     return 1;
   }
@@ -113,7 +117,7 @@ int main(int argc, char *argv[]) {
     strcat(buf, ":");
     format_string(buf, time_used_ns);
 
-    msgwrite(format_string, 52, mymsg.mtype, process_table->queueid);
+    msgwrite(format_string, 52, mymsg.mtype, process_table->queueid, mymsg.pid);
 
     return 0;
   }
@@ -137,7 +141,7 @@ int main(int argc, char *argv[]) {
     strcat(buf, "-");
     buf = format_string(buf, s);
 
-    msgwrite(buf, 35, mymsg.mtype, process_table->blocked_queueid);
+    msgwrite(buf, 35, mymsg.mtype, process_table->queueid, mymsg.pid);
   }
   else {
     printf("Is not blocked. Will tell oss and give timeslice\n");
@@ -146,7 +150,7 @@ int main(int argc, char *argv[]) {
     buf = format_string(buf, timeslice_sec);
     strcat(buf, "-");
     buf = format_string(buf, timeslice_ns);
-    msgwrite(buf, 40, mymsg.mtype, process_table->queueid);
+    msgwrite(buf, 40, mymsg.mtype, process_table->queueid, mymsg.pid);
   }
   
   return 0;
