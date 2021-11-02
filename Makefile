@@ -1,9 +1,9 @@
 CC = gcc
-.SUFFIXES: .c .o
+.SUFFIXES: .c .o .h
 
 all: oss user
 
-oss: oss.o user.o process_table.o utils.o queue.o
+oss: oss.o user.o process_table.o utils.o queue.o config.h
 	gcc -Wall -g -o oss oss.o process_table.o utils.o queue.o
 
 user: user.o utils.o queue.o process_table.o

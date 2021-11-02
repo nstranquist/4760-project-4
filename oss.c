@@ -54,14 +54,13 @@ void generateReport();
 void cleanup();
 char* format_string(char*msg, int data);
 int getNextIndex();
-char** str_split(char* a_str, const char a_delim);
-void make_empty(char **arg_array, int rows, int cols);
 // char** parseUserMessage(char *msg);
 
 // Use bitvector to keep track of the process control blocks (18), use to simulate Process Table
 
 extern struct ProcessTable *process_table;
 mymsg_t mymsg;
+// struct MessageResult *message_result;
 int shmid;
 int queueid;
 int blocked_queueid;
@@ -84,6 +83,8 @@ static void myhandler(int signum) {
     perror("\noss: Warning: Only Ctrl-C and Timer signal interrupts are being handled.\n");
     return; // ignore the interrupt, do not exit
   }
+
+  fprintf(stderr, "interrupt handler\n");
 
   generateReport();
 
@@ -134,7 +135,7 @@ int main(int argc, char *argv[]) {
   int val;
   int result;
   // msg values
-  char **msg_tokens; // array of parsed message values
+  char **msg_tokens;
   const char delim = '-'; // char used to split message text for data
   char test_msg_text[] = "DISPATCH-PROCESS-BLOCKED-20-500"; // test message to use until messages work
   // message data info:
@@ -213,7 +214,7 @@ int main(int argc, char *argv[]) {
   alarm(seconds);
 
   // Instantiate ProcessTable with shared memory (allocate and attach)
-  int shmid = shmget(IPC_PRIVATE, sizeof(struct ProcessTable), IPC_CREAT | 0666); // (struct ProcessTable)
+  shmid = shmget(IPC_PRIVATE, sizeof(struct ProcessTable), IPC_CREAT | 0666); // (struct ProcessTable)
   if (shmid == -1) {
     perror("oss: Error: Failed to create shared memory segment for process table\n");
     return -1;
@@ -277,9 +278,8 @@ int main(int argc, char *argv[]) {
       printf("process table is full\n");
       //      skip the generation, determine another time to try and generate a new process
       //      log to log file that process table is full ("OSS: Process table is full at time t")
-      char *msg = format_string("OSS: Process table is full at time: ", process_table->sec);
-      strcat(msg, ":");
-      msg = format_string(msg, process_table->ns);
+      char *msg;
+      asprintf(&msg, "OSS: Process table is full at time %d:%d", process_table->sec, process_table->ns);
       logmsg(msg);
 
       incrementClockRound(1);
@@ -346,8 +346,9 @@ int main(int argc, char *argv[]) {
     else {
       // in parent
       // declare string
-      char *msg;
-      asprintf(&msg, "OSS: Process %d created at time: %d:%d", child_pid, process_table->sec, process_table->ns);
+      char msg[120];
+      snprintf(msg, sizeof(msg), "OSS: Process %d created at time: %d:%d", child_pid, process_table->sec, process_table->ns);
+      fprintf(stderr, "msg: %s\n", msg);
       logmsg(msg);
 
       pid_t wpid = wait(NULL);
@@ -368,33 +369,58 @@ int main(int argc, char *argv[]) {
 
       // parse message result (using '-' as delimiter)
       printf("message data: %s, message type: %ld\n", mymsg.mtext, mymsg.mtype);
+      int msg_action; // token[0] - action: dispatch/receive, "0" / "1"
+      int msg_pid; // token[1] - process / pid
+      int msg_is_blocked; // token[2] - blocked or empty / != "BLOCKED", "0" / "1"
+      int msg_sec; // token[3] - timeslice in seconds
+      int msg_ns; // token[4] - timeslice in nanoseconds
+      char *msg_action_str = strtok(mymsg.mtext, "-");
+      char *msg_pid_str = strtok(NULL, "-");
+      char *msg_is_blocked_str = strtok(NULL, "-");
+      char *msg_sec_str = strtok(NULL, "-");
+      char *msg_ns_str = strtok(NULL, "-");
 
-      msg_tokens = str_split(mymsg.mtext, delim);
-      if(msg_tokens) {
-        printf("Parsed msg tokens:\n");
-        for(int i = 0; i<5; i++) {
-          printf("%s, ", *(msg_tokens + i));
-        }
-        printf("\n");
+      printf("Parsed msg tokens:\n");
+      printf("strings:\nmsg_action: %s msg_pid: %s msg_is_blocked: %s msg_sec: %s msg_ns: %s\n", msg_action_str, msg_pid_str, msg_is_blocked_str, msg_sec_str, msg_ns_str);
 
-        // convert int data from message
-        printf("ns: %s\n", *(msg_tokens + 4));
+      // convert int data from message
+      if(msg_action_str != NULL && msg_action_str != "DISPATCH")
+        msg_action = 1;
+      else
+        msg_action = 0;
 
-        msg_sec = atoi(*(msg_tokens + 3));
-        msg_ns = atoi(*(msg_tokens +4));
+      if(msg_pid_str != NULL) {
+        msg_pid = atoi(msg_pid_str);
+        printf("msg_pid: %d\n", msg_pid);
+      }
 
-        // reset char **msg_tokens to empty
+      if(msg_is_blocked_str != NULL && msg_is_blocked_str != "BLOCKED")
+        msg_is_blocked = 1;
+      else
+        msg_is_blocked = 0;
 
-        memset(msg_tokens, 0, sizeof(char *) * 5);
-        free(msg_tokens);
-        fprintf(stderr, "msg_tokens freed\n");
+      if(msg_sec_str != NULL) {
+        msg_sec = atoi(msg_sec_str);
+        printf("msg_sec: %d\n", msg_sec);
+      }
+
+      if(msg_ns_str != NULL) {
+        msg_ns = atoi(msg_ns_str);
+        printf("msg_ns: %d\n", msg_ns);
+      }
+
+      // print int results
+      printf("msg int results:\nmsg_action: %d msg_pid: %d msg_is_blocked: %d msg_sec: %d msg_ns: %d\n", msg_action, msg_pid, msg_is_blocked, msg_sec, msg_ns);
+
+      // log message
+      char results_int_msg[120];
+      if(msg_is_blocked == 1) {
+        snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d blocked at time: %d:%d", msg_pid, msg_sec, msg_ns);
       }
       else {
-        perror("oss: Error: could not parse message tokens. skipping");
+        snprintf(results_int_msg, sizeof(results_int_msg), "OSS: Process %d terminated at time: %d:%d", msg_pid, msg_sec, msg_ns);
       }
-      
-      // pid_t wpid = waitpid(child_pid, &status, 0);
-      
+      logmsg(results_int_msg);
     }
 
     // increment total processes that have ran
@@ -463,6 +489,7 @@ int main(int argc, char *argv[]) {
   //    Generate a report with the info:
   //    - avg wait time, avg time in system, avg cpu time, avg time a process waited in blocked queue for each type of process (cpu or io)
   //    - total time cpu spent in idle (waiting)
+  fprintf(stderr, "program ending. total processes: %d\n", process_table->total_processes);
   generateReport();
 
   // Gracefully Shutdown
@@ -470,16 +497,10 @@ int main(int argc, char *argv[]) {
   // - remove message queue(s)
   cleanup();
 
-
   return 0;
 }
 
 void cleanup() {
-  process_table = (struct ProcessTable *)shmat(shmid, NULL, 0);
-  if(detachandremove(shmid, process_table) == -1) {
-    perror("oss: Error: Failure to detach and remove memory\n");
-  }
-  else printf("success detatch\n");
   if(remmsgqueue(process_table->queueid) == -1) {
     perror("oss: Error: Failed to remove message queue");
   }
@@ -488,6 +509,10 @@ void cleanup() {
     perror("oss: Error: Failed to remove blocked message queue");
   }
   else printf("success remove blocked msgqueue\n");
+  if(detachandremove(shmid, process_table) == -1) {
+    perror("oss: Error: Failure to detach and remove memory\n");
+  }
+  else printf("success detatch\n");
 }
 
 // From textbook
@@ -547,36 +572,24 @@ void generateReport() {
   int average_cpu_time = process_table->total_cpu_time / process_table->total_processes;
   int average_process_wait = process_table->total_wait_time / process_table->total_processes;
 
-  int report[4] = {average_wait, average_time_in_system, average_cpu_time, average_process_wait};
-  char report_str[4][25] = {
-    "Average Wait: ",
-    "Average Time in System:",
-    "Average CPU Time: ",
-    "Average Process Wait: "
-  };
+  char avg_wait_str[100];
+  char avg_time_in_system_str[100];
+  char avg_cpu_time_str[100];
+  char avg_process_wait_str[100];
+  char total_idle_time_str[100];
+
+  snprintf(avg_wait_str, sizeof(avg_wait_str), "Average Wait: %d", average_wait);
+  snprintf(avg_time_in_system_str, sizeof(avg_time_in_system_str), "Average Time in System: %d", average_time_in_system);
+  snprintf(avg_cpu_time_str, sizeof(avg_cpu_time_str), "Average CPU Time: %d", average_cpu_time);
+  snprintf(avg_process_wait_str, sizeof(avg_process_wait_str), "Average Process Wait: %d", average_process_wait);
+  snprintf(total_idle_time_str, sizeof(total_idle_time_str), "Total Idle Time: %dsec %dns", process_table->sec, process_table->ns);
 
   logmsg("\nFinal Report:");
-  
-  char *report_info;
-
-  for(int i=0; i<4; i++) {
-    char buf[100];
-    report_info = format_string(report_str[i], report[i]);
-    logmsg(report_info);
-  }
-
-  // calculate total idle time
-  char *idle_info;
-  char *total_idle_time_str = "Total Idle Time: ";
-  if (asprintf(&idle_info, "sec: %d\tns: %d", process_table->sec, process_table->ns) == -1) {
-    perror("oss: Warning: asprintf failed\n");
-  } else {
-    char buf[100];
-    strcat(strcpy(buf, total_idle_time_str), idle_info);
-    printf("%s\n", buf);
-    logmsg(buf);
-    free(idle_info);
-  }
+  logmsg(avg_wait_str);
+  logmsg(avg_time_in_system_str);
+  logmsg(avg_cpu_time_str);
+  logmsg(avg_process_wait_str);
+  logmsg(total_idle_time_str);
 }
 
 void logmsg(const char *msg) {
@@ -636,64 +649,4 @@ void initProcessBlock(int index) {
   bitvector[index] = 1; // activate
   process_table->pcb->pid = 0;
   process_table->pcb->type = 1;
-}
-
-// source: https://stackoverflow.com/questions/9210528/split-string-with-delimiters-in-c
-char** str_split(char* a_str, const char a_delim)
-{
-    char** result    = 0;
-    size_t count     = 0;
-    char* tmp        = a_str;
-    char* last_comma = 0;
-    char delim[2];
-    delim[0] = a_delim;
-    delim[1] = 0;
-
-    /* Count how many elements will be extracted. */
-    while (*tmp)
-    {
-        if (a_delim == *tmp)
-        {
-            count++;
-            last_comma = tmp;
-        }
-        tmp++;
-    }
-
-    /* Add space for trailing token. */
-    count += last_comma < (a_str + strlen(a_str) - 1);
-
-    /* Add space for terminating null string so caller
-       knows where the list of returned strings ends. */
-    count++;
-
-    result = malloc(sizeof(char*) * count);
-
-    if (result)
-    {
-        size_t idx  = 0;
-        char* token = strtok(a_str, delim);
-
-        while (token)
-        {
-            assert(idx < count);
-            *(result + idx++) = strdup(token);
-            token = strtok(0, delim);
-        }
-        assert(idx == count - 1);
-        *(result + idx) = 0;
-    }
-
-    return result;
-}
-
-// source https://stackoverflow.com/questions/10289197/how-to-empty-a-2d-char-array-in-c
-void make_empty(char **arg_array, int rows, int cols) {
-  int i,j;
-  for(i = 0; i <rows; i++) {
-    for(j=0; j<cols;j++) {
-      arg_array[i][j] = '\0';
-    }
-  }
-  return;
 }
