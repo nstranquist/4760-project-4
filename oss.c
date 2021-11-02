@@ -60,6 +60,7 @@ int getNextPid();
 void freePid(int pid);
 int getPriority();
 void init_pids();
+void generate_next_time();
 // char** parseUserMessage(char *msg);
 
 // Use available_pids to keep track of the process control blocks (18), use to simulate Process Table
@@ -268,16 +269,22 @@ int main(int argc, char *argv[]) {
   // fill process table
   init_process_table_pcbs();
 
+  generate_next_time();
+
   // Start Process Loop
   while(process_table->total_processes < MAX_PROCESSES) {
     Time round_diff = incrementClockRound();
 
-    // Generate Next Time for child - 0-2 secs, should be avg 1. second overall
-    int next_sec_diff = getRandom(maxTimeBetweenNewProcsSecs);
-    int next_ns_diff = getRandom(maxTimeBetweenNewProcsNS);
+    if(waitTimeIsUp() == -1) {
+      // cpu in idle state, skip until time for next process to be scheduled
+      printf("oss in idle state\n");
 
-    next_sec = process_table->sec + next_sec_diff;
-    next_ns = process_table->ns + next_ns_diff;
+      // add time_diff to total_idle_time
+      process_table->total_idle_time.sec += round_diff.sec;
+      process_table->total_idle_time.ns += round_diff.ns;
+
+      continue;
+    }
 
     printf("next sec: %d, next ns: %d\n", next_sec, next_ns);
 
@@ -303,19 +310,12 @@ int main(int argc, char *argv[]) {
       sprintf(msg_text, "OSS: Generating process with PID %d and putting it in ready queue at time %d:%d", next_pid, process_table->sec, process_table->ns);
       logmsg(msg_text);
     }
-    else
+    else {
       printf("max processes has been reached\n");
-
-    if(waitTimeIsUp() == -1) {
-      // cpu in idle state, skip until time for next process to be scheduled
-      printf("oss in idle state\n");
-
-      // add time_diff to total_idle_time
-      process_table->total_idle_time.sec += round_diff.sec;
-      process_table->total_idle_time.ns += round_diff.ns;
-
       continue;
     }
+
+    generate_next_time();
 
     // ready for next process
     printf("ready for next process\n");
@@ -343,6 +343,11 @@ int main(int argc, char *argv[]) {
     int ready_pid = dequeue(ready_queue);
     if(ready_pid == -1) {
       printf("ready queue is empty\n");
+      // log that ready queue is empty to logfile
+      char *msg;
+      asprintf(&msg, "OSS: Ready queue is empty at time %d:%d", process_table->sec, process_table->ns);
+      logmsg(msg);
+
       // add time_diff to idle_time
       process_table->total_idle_time.sec += round_diff.sec;
       process_table->total_idle_time.ns += round_diff.ns;
@@ -430,6 +435,10 @@ int main(int argc, char *argv[]) {
         return 1;
       }
 
+      // cleanup process control table
+      process_table->pcb_array[next_table_index].pid = -1;
+      process_table->pcb_array[next_table_index].priority = 0;
+
       // TODO: add timeslice to mymsg, parse here
 
 
@@ -492,7 +501,7 @@ int main(int argc, char *argv[]) {
       }
       logmsg(results_int_msg);
     }
-      }
+  }
 
   // Wait for all children to finish, after the main loop is complete
   while(wait(NULL) > 0) {
@@ -686,6 +695,7 @@ void freePid(int pid) {
 }
 
 int getPriority() {
+  // get priority from low/high priority queue
   return 1;
 }
 
@@ -693,4 +703,13 @@ void init_pids() {
   for(int i=0; i<50; i++) {
     available_pids[i] = -1;
   }
+}
+
+void generate_next_time() {
+  // Generate Next Time for child - 0-2 secs, should be avg 1. second overall
+  int next_sec_diff = getRandom(maxTimeBetweenNewProcsSecs);
+  int next_ns_diff = getRandom(maxTimeBetweenNewProcsNS);
+
+  next_sec = process_table->sec + next_sec_diff;
+  next_ns = process_table->ns + next_ns_diff;
 }

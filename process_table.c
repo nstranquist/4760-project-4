@@ -11,8 +11,8 @@ struct ProcessTable *process_table;
 
 void init_process_table_pcbs() {
   for (int i = 0; i < NUMBER_PCBS; i++) {
-    process_table->pcb_array[i].pid == -1;
-    process_table->pcb_array[i].priority == 0;
+    process_table->pcb_array[i].pid = -1;
+    process_table->pcb_array[i].priority = 0;
     // ...
   }
 }
@@ -75,8 +75,11 @@ int getPCBIndexByPid(int pid) {
 
 int getNextTableIndex() {
   for (int i = 0; i < NUMBER_PCBS; i++) {
-    if(process_table->pcb_array[i].pid == -1)
+    if(process_table->pcb_array[i].pid == -1) {
+      printf("returning i");
       return i;
+    }
+    printf("not -1 at i: %d, is: %d\n", i, process_table->pcb_array[i].pid);
   }
   return -1;
 }
